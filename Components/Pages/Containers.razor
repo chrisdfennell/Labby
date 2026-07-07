@@ -1,0 +1,167 @@
+@page "/containers"
+@rendermode InteractiveServer
+@using Microsoft.Extensions.Options
+@inject ContainerStationClient ContainerStation
+@inject IOptions<KontainrOptions> KontainrConfig
+
+<PageTitle>Labby — Containers</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">📦 Containers</h1>
+
+    @if (Kontainr.IsConfigured)
+    {
+        <div class="btn-group ms-auto" role="group" aria-label="Container view">
+            <button class="btn btn-sm @(_view == View.Kontainr ? "btn-outline-primary active" : "btn-outline-secondary")"
+                    @onclick="() => _view = View.Kontainr">Kontainr</button>
+            <button class="btn btn-sm @(_view == View.ContainerStation ? "btn-outline-primary active" : "btn-outline-secondary")"
+                    @onclick="() => _view = View.ContainerStation">QNAP Container Station</button>
+        </div>
+    }
+</div>
+
+@if (_view == View.Kontainr && Kontainr.IsConfigured)
+{
+    <div class="d-flex align-items-center mb-2">
+        <span class="text-muted small">Embedded from <code>@Kontainr.Url</code></span>
+        <a class="btn btn-sm btn-outline-secondary ms-auto" href="@Kontainr.Url" target="_blank" rel="noreferrer">
+            Open in new tab ↗
+        </a>
+    </div>
+    <div class="kontainr-frame-wrap">
+        <iframe src="@Kontainr.Url" title="Kontainr" class="kontainr-frame"></iframe>
+    </div>
+}
+else if (!ContainerStation.IsConfigured)
+{
+    <div class="alert alert-warning">
+        QNAP is not configured. Set <code>Qnap:Host</code>, <code>Qnap:Username</code> and <code>Qnap:Password</code> first
+        @if (!Kontainr.IsConfigured)
+        {
+            <span> — or set <code>Kontainr:Url</code> to embed Kontainr here.</span>
+        }
+    </div>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else if (_loading && _containers.Count == 0)
+{
+    <p class="text-muted">Talking to Container Station…</p>
+}
+else if (_containers.Count == 0)
+{
+    <p class="text-muted">No containers found.</p>
+}
+else
+{
+    <div class="d-flex mb-2">
+        <button class="btn btn-outline-secondary btn-sm ms-auto" @onclick="RefreshAsync" disabled="@_loading">
+            @(_loading ? "Refreshing…" : "Refresh")
+        </button>
+    </div>
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr><th>Name</th><th>Image</th><th>State</th><th class="text-end">Actions</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var c in _containers)
+            {
+                <tr>
+                    <td class="fw-semibold">@c.Name</td>
+                    <td class="text-muted">@c.Image</td>
+                    <td>
+                        <span class="badge @(c.IsRunning ? "bg-success" : "bg-secondary")">@c.State</span>
+                    </td>
+                    <td class="text-end">
+                        @if (_busy.Contains(c.Id))
+                        {
+                            <span class="text-muted small">working…</span>
+                        }
+                        else if (c.IsRunning)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => StopAsync(c)">Stop</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-outline-success" @onclick="() => StartAsync(c)">Start</button>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private enum View { Kontainr, ContainerStation }
+
+    private KontainrOptions Kontainr => KontainrConfig.Value;
+
+    private View _view;
+    private IReadOnlyList<ContainerInfo> _containers = [];
+    private readonly HashSet<string> _busy = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override void OnInitialized() =>
+        _view = Kontainr.IsConfigured ? View.Kontainr : View.ContainerStation;
+
+    // Runs after first render so prerendering never blocks on a slow/unreachable NAS.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await RefreshAsync();
+        StateHasChanged();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (!ContainerStation.IsConfigured)
+        {
+            _loading = false;
+            return;
+        }
+        _loading = true;
+        _error = null;
+        try
+        {
+            _containers = await ContainerStation.GetContainersAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Task StartAsync(ContainerInfo container) =>
+        RunActionAsync(container, () => ContainerStation.StartAsync(container));
+
+    private Task StopAsync(ContainerInfo container) =>
+        RunActionAsync(container, () => ContainerStation.StopAsync(container));
+
+    private async Task RunActionAsync(ContainerInfo container, Func<Task> action)
+    {
+        _busy.Add(container.Id);
+        try
+        {
+            await action();
+            await Task.Delay(1500); // give the container a moment to change state before re-reading
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _busy.Remove(container.Id);
+        }
+    }
+}

@@ -1,0 +1,52 @@
+# Compose file for running the stack ON the QNAP itself (Container Station).
+# Uses prebuilt images (the NAS doesn't build): on your PC run
+#   docker compose build
+#   docker save labby-labby labby-kontainr-proxy -o labby-images.tar
+# copy the tar to a NAS share, then on the NAS (SSH):
+#   docker load -i /share/<YourShare>/labby-images.tar
+#   docker compose -f docker-compose.nas.yml up -d
+services:
+  labby:
+    image: labby-labby:latest
+    container_name: labby
+    ports:
+      - "5123:8080"
+    restart: unless-stopped
+    depends_on:
+      - kontainr
+    environment:
+      # Qnap__Host is the NAS's own LAN IP — containers can reach QTS through it.
+      Qnap__Host: ${QNAP_HOST:-}
+      Qnap__Port: ${QNAP_PORT:-8080}
+      Qnap__UseHttps: ${QNAP_USE_HTTPS:-false}
+      Qnap__Username: ${QNAP_USERNAME:-}
+      Qnap__Password: ${QNAP_PASSWORD:-}
+      AmbientWeather__ApiKey: ${AMBIENT_API_KEY:-}
+      AmbientWeather__ApplicationKey: ${AMBIENT_APP_KEY:-}
+      AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
+      # Loaded by the browser: use the NAS LAN IP, e.g. http://192.168.86.54:5124
+      Kontainr__Url: ${KONTAINR_URL:-}
+
+  kontainr:
+    image: fennch/kontainr:latest
+    container_name: kontainr
+    restart: unless-stopped
+    volumes:
+      # The NAS's Docker socket — Kontainr manages Container Station's containers directly.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kontainr-data:/app/data
+    environment:
+      Auth__Username: ${KONTAINR_AUTH_USERNAME:-}
+      Auth__Password: ${KONTAINR_AUTH_PASSWORD:-}
+
+  kontainr-proxy:
+    image: labby-kontainr-proxy:latest
+    container_name: kontainr-proxy
+    ports:
+      - "5124:8080"
+    restart: unless-stopped
+    depends_on:
+      - kontainr
+
+volumes:
+  kontainr-data:

@@ -1,0 +1,162 @@
+@page "/"
+@rendermode InteractiveServer
+@inject ServiceHealthMonitor Health
+@inject AmbientWeatherClient Weather
+@inject QnapClient Qnap
+@implements IDisposable
+
+<PageTitle>Labby — Dashboard</PageTitle>
+
+<h1 class="mb-4">🏠 Home Lab</h1>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-7">
+        <div class="card h-100">
+            <div class="card-header">🌤️ Weather @(_weather?.StationName is { } n ? $"— {n}" : "")</div>
+            <div class="card-body">
+                @if (_weather is null)
+                {
+                    <span class="text-muted">@(_weatherError ?? "Loading…")</span>
+                }
+                else
+                {
+                    <div class="d-flex flex-wrap gap-4 align-items-center">
+                        <div>
+                            <div class="fs-1 fw-bold">@(_weather.TempF?.ToString("0.#") ?? "—")°F</div>
+                            <div class="text-muted">feels like @(_weather.FeelsLikeF?.ToString("0.#") ?? "—")°F</div>
+                        </div>
+                        <div>
+                            <div>💧 @(_weather.HumidityPercent?.ToString("0") ?? "—")% humidity</div>
+                            <div>💨 @(_weather.WindSpeedMph?.ToString("0.#") ?? "—") mph @_weather.WindDirCompass</div>
+                            <div>🌧️ @(_weather.DailyRainIn?.ToString("0.##") ?? "—") in today</div>
+                        </div>
+                        <div class="ms-auto text-end text-muted small">
+                            <a href="weather">full station →</a><br />
+                            updated @_weather.ObservedAt.ToString("HH:mm")
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-md-5">
+        <div class="card h-100">
+            <div class="card-header">💾 NAS @(_nas?.ServerName ?? "")</div>
+            <div class="card-body">
+                @if (_nas is null)
+                {
+                    <span class="text-muted">@(_nasError ?? "Loading…")</span>
+                }
+                else
+                {
+                    <div>CPU: <strong>@(_nas.CpuUsagePercent?.ToString("0.#") ?? "—")%</strong></div>
+                    <div>RAM: <strong>@(_nas.UsedMemoryPercent?.ToString("0.#") ?? "—")%</strong> used</div>
+                    <div>Uptime: <strong>@Format.Uptime(_nas.Uptime)</strong></div>
+                    <a href="storage" class="small">storage details →</a>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<h4 class="mb-3">Services</h4>
+@if (_services.Count == 0)
+{
+    <div class="alert alert-secondary">
+        No services configured yet — add tiles under <code>Dashboard:Services</code> in <code>appsettings.json</code>.
+    </div>
+}
+<div class="row g-3">
+    @foreach (var s in _services)
+    {
+        <div class="col-sm-6 col-lg-4 col-xxl-3">
+            <a href="@s.Url" target="_blank" rel="noreferrer" class="text-decoration-none">
+                <div class="card service-tile h-100">
+                    <div class="card-body d-flex align-items-center gap-3">
+                        <div class="fs-2">@s.Icon</div>
+                        <div class="flex-grow-1">
+                            <div class="fw-semibold">@s.Name</div>
+                            <div class="text-muted small">@(s.Description ?? s.Url)</div>
+                        </div>
+                        <div class="text-end">
+                            @if (s.IsUp is null)
+                            {
+                                <span class="status-dot pending" title="Waiting for first check"></span>
+                            }
+                            else if (s.IsUp == true)
+                            {
+                                <span class="status-dot up" title="Up"></span>
+                                <div class="text-muted small">@(s.LatencyMs)ms</div>
+                            }
+                            else
+                            {
+                                <span class="status-dot down" title="@s.Error"></span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </a>
+        </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<ServiceStatus> _services = [];
+    private WeatherReading? _weather;
+    private NasSystemInfo? _nas;
+    private string? _weatherError;
+    private string? _nasError;
+
+    protected override void OnInitialized()
+    {
+        _services = Health.Snapshot;
+        Health.Changed += OnHealthChanged;
+    }
+
+    // Data loads after first render so prerendering never blocks on a slow/unreachable NAS.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        // Load the two info cards independently so one failing doesn't blank the other.
+        await Task.WhenAll(LoadWeatherAsync(), LoadNasAsync());
+        StateHasChanged();
+    }
+
+    private async Task LoadWeatherAsync()
+    {
+        if (!Weather.IsConfigured)
+        {
+            _weatherError = "Not configured — set AmbientWeather:ApiKey and ApplicationKey.";
+            return;
+        }
+        _weather = await Weather.GetCurrentAsync();
+        if (_weather is null)
+            _weatherError = "No data from Ambient Weather.";
+    }
+
+    private async Task LoadNasAsync()
+    {
+        if (!Qnap.IsConfigured)
+        {
+            _nasError = "Not configured — set Qnap:Host, Username and Password.";
+            return;
+        }
+        try
+        {
+            _nas = await Qnap.GetSystemInfoAsync();
+        }
+        catch (Exception ex)
+        {
+            _nasError = ex.GetBaseException().Message;
+        }
+    }
+
+    private void OnHealthChanged()
+    {
+        _services = Health.Snapshot;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => Health.Changed -= OnHealthChanged;
+}

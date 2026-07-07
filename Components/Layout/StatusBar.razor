@@ -1,0 +1,23 @@
+@implements IDisposable
+
+<div class="status-bar">
+    <span class="status-bar-host">infra@@labby:~$</span>
+    <span class="status-bar-clock">@_now.ToString("ddd dd MMM · HH:mm:ss")</span>
+</div>
+
+@code {
+    private DateTimeOffset _now = DateTimeOffset.Now;
+    private Timer? _timer;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+            _timer = new Timer(_ => _ = InvokeAsync(() =>
+            {
+                _now = DateTimeOffset.Now;
+                StateHasChanged();
+            }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

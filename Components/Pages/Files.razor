@@ -1,0 +1,148 @@
+@page "/files"
+@rendermode InteractiveServer
+@inject QnapFileStation FileStation
+
+<PageTitle>Labby — Files</PageTitle>
+
+<h1 class="mb-4">📁 NAS Files</h1>
+
+@if (!FileStation.IsConfigured)
+{
+    <div class="alert alert-warning">
+        QNAP is not configured. Set <code>Qnap:Host</code>, <code>Qnap:Username</code> and <code>Qnap:Password</code> first.
+    </div>
+}
+else
+{
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item">
+                @if (_segments.Count == 0)
+                {
+                    <span>Shares</span>
+                }
+                else
+                {
+                    <a href="" @onclick="() => NavigateToDepthAsync(0)" @onclick:preventDefault>Shares</a>
+                }
+            </li>
+            @for (var i = 0; i < _segments.Count; i++)
+            {
+                var depth = i + 1;
+                if (depth == _segments.Count)
+                {
+                    <li class="breadcrumb-item active" aria-current="page">@_segments[i]</li>
+                }
+                else
+                {
+                    <li class="breadcrumb-item">
+                        <a href="" @onclick="() => NavigateToDepthAsync(depth)" @onclick:preventDefault>@_segments[i]</a>
+                    </li>
+                }
+            }
+        </ol>
+    </nav>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    else if (_loading)
+    {
+        <p class="text-muted">Loading…</p>
+    }
+    else if (_entries.Count == 0)
+    {
+        <p class="text-muted">This folder is empty.</p>
+    }
+    else
+    {
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr><th>Name</th><th class="text-end">Size</th><th class="text-end">Modified</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in _entries)
+                {
+                    <tr>
+                        <td>
+                            @if (entry.IsFolder)
+                            {
+                                <a href="" @onclick="() => OpenFolderAsync(entry.Name)" @onclick:preventDefault>
+                                    📁 @entry.Name
+                                </a>
+                            }
+                            else
+                            {
+                                <span>📄 @entry.Name</span>
+                            }
+                        </td>
+                        <td class="text-end text-muted">@(entry.IsFolder ? "—" : Format.Bytes(entry.SizeBytes))</td>
+                        <td class="text-end text-muted">@(entry.Modified?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                        <td class="text-end">
+                            @if (!entry.IsFolder)
+                            {
+                                <a class="btn btn-sm btn-outline-primary"
+                                   href="/api/files/download?path=@Uri.EscapeDataString(CurrentPath)&name=@Uri.EscapeDataString(entry.Name)"
+                                   target="_blank" rel="noreferrer">Download</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private readonly List<string> _segments = [];
+    private IReadOnlyList<FileEntry> _entries = [];
+    private bool _loading = true;
+    private string? _error;
+
+    private string CurrentPath => "/" + string.Join('/', _segments);
+
+    // Runs after first render so prerendering never blocks on a slow/unreachable NAS.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await RefreshAsync();
+        StateHasChanged();
+    }
+
+    private async Task OpenFolderAsync(string name)
+    {
+        _segments.Add(name);
+        await RefreshAsync();
+    }
+
+    private async Task NavigateToDepthAsync(int depth)
+    {
+        _segments.RemoveRange(depth, _segments.Count - depth);
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (!FileStation.IsConfigured)
+            return;
+        _loading = true;
+        _error = null;
+        try
+        {
+            _entries = _segments.Count == 0
+                ? await FileStation.GetSharesAsync()
+                : await FileStation.ListFolderAsync(CurrentPath);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetBaseException().Message;
+            _entries = [];
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

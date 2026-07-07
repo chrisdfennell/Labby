@@ -1,0 +1,16 @@
+.status-bar {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    font-family: var(--lab-mono);
+    font-size: 0.8rem;
+}
+
+.status-bar-host {
+    color: var(--lab-accent);
+}
+
+.status-bar-clock {
+    color: #7b8ea1;
+    letter-spacing: 0.06em;
+}

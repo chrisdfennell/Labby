@@ -1,0 +1,50 @@
+services:
+  labby:
+    build: .
+    container_name: labby
+    ports:
+      - "5123:8080"
+    restart: unless-stopped
+    depends_on:
+      - kontainr
+    environment:
+      # Any appsettings.json value can be overridden here with __ as the separator.
+      # Prefer putting secrets in a .env file next to this compose file (see .env.example).
+      Qnap__Host: ${QNAP_HOST:-}
+      Qnap__Port: ${QNAP_PORT:-8080}
+      Qnap__UseHttps: ${QNAP_USE_HTTPS:-false}
+      Qnap__Username: ${QNAP_USERNAME:-}
+      Qnap__Password: ${QNAP_PASSWORD:-}
+      AmbientWeather__ApiKey: ${AMBIENT_API_KEY:-}
+      AmbientWeather__ApplicationKey: ${AMBIENT_APP_KEY:-}
+      AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
+      # Must be reachable from the BROWSER (it's an iframe src), not from inside the labby container.
+      Kontainr__Url: ${KONTAINR_URL:-http://localhost:5124}
+
+  kontainr:
+    image: fennch/kontainr:latest
+    container_name: kontainr
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kontainr-data:/app/data
+    environment:
+      # Optional basic auth for Kontainr itself:
+      Auth__Username: ${KONTAINR_AUTH_USERNAME:-}
+      Auth__Password: ${KONTAINR_AUTH_PASSWORD:-}
+
+  # Kontainr sends X-Frame-Options/CSP headers that block embedding; this proxy
+  # strips them so Labby's Containers page can iframe it.
+  kontainr-proxy:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.kontainr-proxy
+    container_name: kontainr-proxy
+    ports:
+      - "5124:8080"
+    restart: unless-stopped
+    depends_on:
+      - kontainr
+
+volumes:
+  kontainr-data:

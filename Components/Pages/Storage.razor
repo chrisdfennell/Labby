@@ -1,0 +1,153 @@
+@page "/storage"
+@rendermode InteractiveServer
+@inject QnapClient Qnap
+
+<PageTitle>Labby — Storage</PageTitle>
+
+<h1 class="mb-4">💾 NAS Storage</h1>
+
+@if (!Qnap.IsConfigured)
+{
+    <div class="alert alert-warning">
+        QNAP is not configured. Set <code>Qnap:Host</code>, <code>Qnap:Username</code> and <code>Qnap:Password</code>
+        in <code>appsettings.json</code> (or user secrets), then restart.
+    </div>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">Could not reach the NAS: @_error</div>
+}
+else if (_loading)
+{
+    <p class="text-muted">Querying @Qnap.BaseUrl …</p>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">System</div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                            <tr><th>Model</th><td>@(_system?.ModelName ?? "—")</td></tr>
+                            <tr><th>Firmware</th><td>@(_system?.FirmwareVersion ?? "—")</td></tr>
+                            <tr><th>Uptime</th><td>@Format.Uptime(_system?.Uptime)</td></tr>
+                            <tr><th>CPU</th><td>@(_system?.CpuUsagePercent?.ToString("0.#") ?? "—")%</td></tr>
+                            <tr>
+                                <th>Memory</th>
+                                <td>
+                                    @if (_system is { TotalMemoryMb: > 0, FreeMemoryMb: not null })
+                                    {
+                                        @($"{(_system.TotalMemoryMb - _system.FreeMemoryMb) / 1024:0.#} / {_system.TotalMemoryMb / 1024:0.#} GB ({_system.UsedMemoryPercent}%)")
+                                    }
+                                    else
+                                    {
+                                        @("—")
+                                    }
+                                </td>
+                            </tr>
+                            <tr><th>CPU temp</th><td>@(_system?.CpuTempC is { } c ? $"{c:0}°C" : "—")</td></tr>
+                            <tr><th>System temp</th><td>@(_system?.SystemTempC is { } s ? $"{s:0}°C" : "—")</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">Volumes</div>
+                <div class="card-body">
+                    @if (_volumes.Count == 0)
+                    {
+                        <span class="text-muted">No volume data returned.</span>
+                    }
+                    @foreach (var v in _volumes)
+                    {
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between">
+                                <strong>@v.Label</strong>
+                                <span class="text-muted small">
+                                    @Format.Bytes(v.UsedBytes) / @Format.Bytes(v.TotalBytes) (@v.UsedPercent%)
+                                </span>
+                            </div>
+                            <div class="progress" style="height: 10px;">
+                                <div class="progress-bar @(v.UsedPercent > 90 ? "bg-danger" : v.UsedPercent > 75 ? "bg-warning" : "bg-success")"
+                                     style="width: @(v.UsedPercent.ToString(System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_disks.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header">Disks</div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-striped mb-0">
+                    <thead>
+                        <tr><th>Slot</th><th>Model</th><th>Capacity</th><th>Temp</th><th>Health</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in _disks)
+                        {
+                            <tr>
+                                <td>@d.Slot</td>
+                                <td>@d.Model</td>
+                                <td>@d.Capacity</td>
+                                <td>@(d.TempC is { } t ? $"{t:0}°C" : "—")</td>
+                                <td>
+                                    @if (d.Health.Contains("good", StringComparison.OrdinalIgnoreCase) || d.Health.Contains("OK", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <span class="badge bg-success">@d.Health</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning text-dark">@(string.IsNullOrEmpty(d.Health) ? "unknown" : d.Health)</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private NasSystemInfo? _system;
+    private IReadOnlyList<NasVolume> _volumes = [];
+    private IReadOnlyList<NasDisk> _disks = [];
+
+    // Runs after first render so prerendering never blocks on a slow/unreachable NAS.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !Qnap.IsConfigured)
+            return;
+        try
+        {
+            var systemTask = Qnap.GetSystemInfoAsync();
+            var volumesTask = Qnap.GetVolumesAsync();
+            var disksTask = Qnap.GetDisksAsync();
+            await Task.WhenAll(systemTask, volumesTask, disksTask);
+            _system = systemTask.Result;
+            _volumes = volumesTask.Result;
+            _disks = disksTask.Result;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+}

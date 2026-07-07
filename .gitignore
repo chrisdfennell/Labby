@@ -1,0 +1,16 @@
+# Secrets — never commit (real NAS + weather credentials live here)
+.env
+
+# Build output
+bin/
+obj/
+publish/
+
+# IDE / tooling
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Docker image exports
+*.tar

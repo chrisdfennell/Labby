@@ -1,0 +1,2 @@
+FROM nginx:alpine
+COPY kontainr-proxy.conf /etc/nginx/conf.d/default.conf

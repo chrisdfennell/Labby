@@ -1,0 +1,96 @@
+@page "/weather"
+@rendermode InteractiveServer
+@inject AmbientWeatherClient WeatherClient
+@implements IDisposable
+
+<PageTitle>Labby — Weather</PageTitle>
+
+<h1 class="mb-1">🌤️ Weather Station</h1>
+<p class="text-muted mb-4">
+    @(_reading?.StationName ?? "Ambient Weather")
+    @if (_reading is not null)
+    {
+        <span> — last report @_reading.ObservedAt.ToString("HH:mm:ss")</span>
+    }
+</p>
+
+@if (!WeatherClient.IsConfigured)
+{
+    <div class="alert alert-warning">
+        Ambient Weather is not configured. Create an API key + application key at
+        <a href="https://ambientweather.net/account" target="_blank" rel="noreferrer">ambientweather.net/account</a>
+        and set <code>AmbientWeather:ApiKey</code> and <code>AmbientWeather:ApplicationKey</code>.
+    </div>
+}
+else if (_reading is null)
+{
+    <p class="text-muted">@(_error ?? "Loading…")</p>
+}
+else
+{
+    <div class="row g-3">
+        @foreach (var (label, value) in Readings())
+        {
+            <div class="col-6 col-md-4 col-xl-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <div class="text-muted small">@label</div>
+                        <div class="fs-4 fw-semibold">@value</div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private WeatherReading? _reading;
+    private string? _error;
+    private Timer? _refreshTimer;
+
+    // Runs after first render so prerendering never blocks on the weather API.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await LoadAsync();
+        StateHasChanged();
+        _refreshTimer = new Timer(_ => _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    private async Task LoadAsync()
+    {
+        if (!WeatherClient.IsConfigured)
+            return;
+        _reading = await WeatherClient.GetCurrentAsync();
+        if (_reading is null)
+            _error = "No data returned from Ambient Weather — check your keys.";
+    }
+
+    private IEnumerable<(string Label, string Value)> Readings()
+    {
+        var r = _reading!;
+        yield return ("Temperature", Deg(r.TempF));
+        yield return ("Feels like", Deg(r.FeelsLikeF));
+        yield return ("Dew point", Deg(r.DewPointF));
+        yield return ("Humidity", Pct(r.HumidityPercent));
+        yield return ("Wind", r.WindSpeedMph is { } w ? $"{w:0.#} mph {r.WindDirCompass}" : "—");
+        yield return ("Wind gust", r.WindGustMph is { } g ? $"{g:0.#} mph" : "—");
+        yield return ("Rain (hour)", Inches(r.HourlyRainIn));
+        yield return ("Rain (today)", Inches(r.DailyRainIn));
+        yield return ("Barometer", r.BarometerInHg is { } b ? $"{b:0.00} inHg" : "—");
+        yield return ("UV index", r.Uv?.ToString("0.#") ?? "—");
+        yield return ("Solar", r.SolarRadiationWm2 is { } s ? $"{s:0} W/m²" : "—");
+        yield return ("Indoor", r.IndoorTempF is { } t ? $"{t:0.#}°F / {Pct(r.IndoorHumidityPercent)}" : "—");
+    }
+
+    private static string Deg(double? value) => value is { } v ? $"{v:0.#}°F" : "—";
+    private static string Pct(double? value) => value is { } v ? $"{v:0}%" : "—";
+    private static string Inches(double? value) => value is { } v ? $"{v:0.##} in" : "—";
+
+    public void Dispose() => _refreshTimer?.Dispose();
+}
