@@ -90,6 +90,8 @@ builder.Services.AddSingleton<ServiceHealthMonitor>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ServiceHealthMonitor>());
 builder.Services.AddSingleton<WeatherHistoryService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WeatherHistoryService>());
+builder.Services.AddSingleton<WakeOnLanService>();
+builder.Services.AddHostedService<NasHealthMonitor>();
 
 var app = builder.Build();
 

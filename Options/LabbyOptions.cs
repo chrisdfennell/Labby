@@ -95,6 +95,12 @@ public sealed class AlertOptions
     /// </summary>
     public string WebhookUrl { get; set; } = "";
 
+    /// <summary>NAS health alert when a volume passes this used-% (0 disables).</summary>
+    public double VolumeFullPercent { get; set; } = 90;
+
+    /// <summary>NAS health alert when the CPU passes this temperature (0 disables).</summary>
+    public double CpuTempC { get; set; } = 85;
+
     public bool IsEnabled => !string.IsNullOrWhiteSpace(WebhookUrl);
 }
 
@@ -130,4 +136,7 @@ public sealed class MonitoredService
     public string Icon { get; set; } = "🧩";
 
     public string? Description { get; set; }
+
+    /// <summary>Optional MAC address; when set, a Wake-on-LAN button appears while the service is down.</summary>
+    public string? Mac { get; set; }
 }

@@ -105,6 +105,7 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
             Url = service.Url,
             Icon = service.Icon,
             Description = service.Description,
+            Mac = service.Mac,
             IsUp = up,
             LatencyMs = latency,
             CheckedAt = now,
@@ -131,6 +132,7 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
         Url = service.Url,
         Icon = service.Icon,
         Description = service.Description,
+        Mac = service.Mac,
         IsUp = null,
     };
 }

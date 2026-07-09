@@ -4,6 +4,8 @@
 @inject ServiceHealthMonitor Health
 @inject AmbientWeatherClient Weather
 @inject QnapClient Qnap
+@inject MediaHub Media
+@inject WakeOnLanService Wol
 @implements IDisposable
 
 <PageTitle>Labby — Dashboard</PageTitle>
@@ -11,7 +13,7 @@
 <h1 class="mb-4">🏠 Home Lab</h1>
 
 <div class="row g-3 mb-4">
-    <div class="col-md-7">
+    <div class="@(Media.AnyConfigured ? "col-lg-5 col-md-6" : "col-md-7")">
         <div class="card h-100">
             <div class="card-header">🌤️ Weather @(_weather?.StationName is { } n ? $"— {n}" : "")</div>
             <div class="card-body">
@@ -40,7 +42,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-5">
+    <div class="@(Media.AnyConfigured ? "col-lg-4 col-md-6" : "col-md-5")">
         <div class="card h-100">
             <div class="card-header">💾 NAS @(_nas?.ServerName ?? "")</div>
             <div class="card-body">
@@ -58,6 +60,36 @@
             </div>
         </div>
     </div>
+    @if (Media.AnyConfigured)
+    {
+        <div class="col-lg-3 col-md-12">
+            <div class="card h-100">
+                <div class="card-header">🎬 Media</div>
+                <div class="card-body">
+                    @if (_streams is null && _downloads is null && _pendingRequests is null)
+                    {
+                        <span class="text-muted">Loading…</span>
+                    }
+                    else
+                    {
+                        @if (_streams is { } streams)
+                        {
+                            <div>▶ <strong>@streams</strong> streaming</div>
+                        }
+                        @if (_downloads is { } speed)
+                        {
+                            <div>⬇ <strong>@Format.Bytes(speed)/s</strong></div>
+                        }
+                        @if (_pendingRequests is { } pending)
+                        {
+                            <div>🎟 <strong>@pending</strong> pending</div>
+                        }
+                        <a href="media" class="small">media →</a>
+                    }
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 <h4 class="mb-3">Services</h4>
@@ -71,8 +103,8 @@
     @foreach (var s in _services)
     {
         <div class="col-sm-6 col-lg-4 col-xxl-3">
-            <a href="@s.Url" target="_blank" rel="noreferrer" class="text-decoration-none">
-                <div class="card service-tile h-100">
+            <div class="card service-tile h-100">
+                <a href="@s.Url" target="_blank" rel="noreferrer" class="text-decoration-none service-tile-link">
                     <div class="card-body d-flex align-items-center gap-3">
                         <div class="fs-2">@s.Icon</div>
                         <div class="flex-grow-1">
@@ -95,22 +127,29 @@
                             }
                         </div>
                     </div>
-                    @if (s.History.Count > 0)
-                    {
-                        <div class="card-footer service-tile-footer">
-                            <svg class="sparkline" viewBox="0 0 120 24" preserveAspectRatio="none" role="img"
-                                 aria-label="Latency over the last hour"><title>Latency, last hour</title>@RenderSparkline(s.History)</svg>
-                            <span class="text-muted">@(s.UptimePercent?.ToString("0.#"))% up</span>
-                            @if (s.StateSince is { } since)
-                            {
-                                <span class="@(s.IsUp == true ? "state-up" : "state-down")">
-                                    @(s.IsUp == true ? "up" : "down") @Format.ShortDuration(DateTimeOffset.Now - since)
-                                </span>
-                            }
-                        </div>
-                    }
-                </div>
-            </a>
+                </a>
+                @if (s.History.Count > 0)
+                {
+                    <div class="card-footer service-tile-footer">
+                        <svg class="sparkline" viewBox="0 0 120 24" preserveAspectRatio="none" role="img"
+                             aria-label="Latency over the last hour"><title>Latency, last hour</title>@RenderSparkline(s.History)</svg>
+                        <span class="text-muted">@(s.UptimePercent?.ToString("0.#"))% up</span>
+                        @if (s.StateSince is { } since)
+                        {
+                            <span class="@(s.IsUp == true ? "state-up" : "state-down")">
+                                @(s.IsUp == true ? "up" : "down") @Format.ShortDuration(DateTimeOffset.Now - since)
+                            </span>
+                        }
+                        @if (s.IsUp == false && !string.IsNullOrWhiteSpace(s.Mac))
+                        {
+                            <button type="button" class="wake-btn" title="Send Wake-on-LAN to @s.Mac"
+                                    @onclick="() => WakeAsync(s)" disabled="@(_woken.Contains(s.Name))">
+                                @(_woken.Contains(s.Name) ? "⚡ sent" : "⚡ wake")
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
         </div>
     }
 </div>
@@ -121,6 +160,11 @@
     private NasSystemInfo? _nas;
     private string? _weatherError;
     private string? _nasError;
+    private int? _streams;
+    private long? _downloads;
+    private int? _pendingRequests;
+    private readonly HashSet<string> _woken = [];
+    private Timer? _refreshTimer;
 
     protected override void OnInitialized()
     {
@@ -133,9 +177,39 @@
     {
         if (!firstRender)
             return;
-        // Load the two info cards independently so one failing doesn't blank the other.
-        await Task.WhenAll(LoadWeatherAsync(), LoadNasAsync());
+        await LoadCardsAsync();
         StateHasChanged();
+        _refreshTimer = new Timer(_ => _ = InvokeAsync(async () =>
+        {
+            await LoadCardsAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    // Cards load independently so one failing doesn't blank the others.
+    private Task LoadCardsAsync() => Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync());
+
+    private async Task LoadMediaAsync()
+    {
+        try
+        {
+            if (Media.TautulliConfigured)
+                _streams = (await Media.GetNowPlayingAsync()).Sessions.Count;
+            if (Media.DownloadsConfigured)
+                _downloads = (await Media.GetDownloadsAsync()).DownloadBps;
+            if (Media.OverseerrConfigured)
+                _pendingRequests = (await Media.GetRequestsAsync()).Requests.Count;
+        }
+        catch (Exception)
+        {
+            // Card is a glance, not a monitor — details and errors live on /media.
+        }
+    }
+
+    private async Task WakeAsync(ServiceStatus service)
+    {
+        if (service.Mac is { } mac && await Wol.WakeAsync(mac))
+            _woken.Add(service.Name);
     }
 
     private async Task LoadWeatherAsync()
@@ -170,6 +244,8 @@
     private void OnHealthChanged()
     {
         _services = Health.Snapshot;
+        // A service that recovered can be woken again next time it goes down.
+        _woken.RemoveWhere(name => _services.FirstOrDefault(s => s.Name == name)?.IsUp == true);
         _ = InvokeAsync(StateHasChanged);
     }
 
@@ -190,5 +266,9 @@
         return new MarkupString(sb.ToString());
     }
 
-    public void Dispose() => Health.Changed -= OnHealthChanged;
+    public void Dispose()
+    {
+        Health.Changed -= OnHealthChanged;
+        _refreshTimer?.Dispose();
+    }
 }

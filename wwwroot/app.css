@@ -117,6 +117,33 @@ code {
     transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
+.service-tile-link {
+    color: inherit;
+    display: block;
+}
+
+.wake-btn {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--lab-amber);
+    border-radius: 4px;
+    color: var(--lab-amber);
+    font-family: var(--lab-mono);
+    font-size: 0.72rem;
+    padding: 0 0.45rem;
+    cursor: pointer;
+}
+
+    .wake-btn:hover:not(:disabled) {
+        background: var(--lab-amber);
+        color: #231a02;
+    }
+
+    .wake-btn:disabled {
+        opacity: 0.7;
+        cursor: default;
+    }
+
     .service-tile:hover {
         transform: translateY(-2px);
         border-color: var(--lab-accent);

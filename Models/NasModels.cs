@@ -59,6 +59,7 @@ public sealed record ServiceStatus
     public required string Url { get; init; }
     public string Icon { get; init; } = "🧩";
     public string? Description { get; init; }
+    public string? Mac { get; init; }
     public bool? IsUp { get; init; }
     public long? LatencyMs { get; init; }
     public DateTimeOffset? CheckedAt { get; init; }
