@@ -10,6 +10,8 @@ services:
     environment:
       # Any appsettings.json value can be overridden here with __ as the separator.
       # Prefer putting secrets in a .env file next to this compose file (see .env.example).
+      # Containers default to UTC; set TZ so weather timestamps and the clock read local time.
+      TZ: ${TZ:-}
       # Setting a password turns on Labby's login screen.
       Auth__Username: ${LABBY_AUTH_USERNAME:-labby}
       Auth__Password: ${LABBY_AUTH_PASSWORD:-}
