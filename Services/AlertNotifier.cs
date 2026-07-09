@@ -34,7 +34,11 @@ public sealed class AlertNotifier(IHttpClientFactory httpFactory, IOptions<Alert
             if (!response.IsSuccessStatusCode)
                 logger.LogWarning("Alert webhook returned HTTP {Status}", (int)response.StatusCode);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) // includes HttpClient timeouts (TaskCanceledException)
         {
             logger.LogWarning(ex, "Alert webhook failed");
         }

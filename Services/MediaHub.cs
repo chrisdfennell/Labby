@@ -77,10 +77,14 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             }
             return new NowPlayingSnapshot { Sessions = sessions };
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             logger.LogWarning(ex, "Tautulli fetch failed");
-            return new NowPlayingSnapshot { Error = ex.GetBaseException().Message };
+            return new NowPlayingSnapshot { Error = Describe(ex) };
         }
     }
 
@@ -108,10 +112,14 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             }
             return new UpcomingSnapshot { Items = items.OrderBy(i => i.At).ToList() };
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             logger.LogWarning(ex, "Sonarr fetch failed");
-            return new UpcomingSnapshot { SonarrError = ex.GetBaseException().Message };
+            return new UpcomingSnapshot { SonarrError = Describe(ex) };
         }
     }
 
@@ -149,10 +157,14 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             }
             return new UpcomingSnapshot { Items = items.OrderBy(i => i.At).ToList() };
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             logger.LogWarning(ex, "Radarr fetch failed");
-            return new UpcomingSnapshot { RadarrError = ex.GetBaseException().Message };
+            return new UpcomingSnapshot { RadarrError = Describe(ex) };
         }
     }
 
@@ -177,10 +189,14 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
                 down += qbitDown;
                 up += qbitUp;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 logger.LogWarning(ex, "qBittorrent fetch failed");
-                qbitError = ex.GetBaseException().Message;
+                qbitError = Describe(ex);
             }
         }
 
@@ -192,10 +208,14 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
                 items.AddRange(nzbItems);
                 down += nzbDown;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 logger.LogWarning(ex, "NZBGet fetch failed");
-                nzbError = ex.GetBaseException().Message;
+                nzbError = Describe(ex);
             }
         }
 
@@ -332,10 +352,14 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             }));
             return new RequestsSnapshot { Requests = requests };
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             logger.LogWarning(ex, "Overseerr fetch failed");
-            return new RequestsSnapshot { Error = ex.GetBaseException().Message };
+            return new RequestsSnapshot { Error = Describe(ex) };
         }
     }
 
@@ -358,7 +382,11 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             _titleCache[key] = title;
             return title;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
         {
             return $"tmdb:{tmdbId}";
         }
@@ -402,6 +430,12 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             cache.Lock.Release();
         }
     }
+
+    // HttpClient timeouts surface as TaskCanceledException; name the likely cause.
+    private static string Describe(Exception ex) =>
+        ex is TaskCanceledException
+            ? "timed out — is it reachable from the Labby container?"
+            : ex.GetBaseException().Message;
 
     // Tautulli (and friends) return numbers as strings half the time; parse either.
     private static string Str(JsonElement e, string prop) =>

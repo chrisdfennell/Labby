@@ -47,7 +47,11 @@ public sealed class AmbientWeatherClient(IHttpClientFactory httpFactory, IOption
             }
             return reading;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) // includes HttpClient timeouts (TaskCanceledException)
         {
             logger.LogWarning(ex, "Ambient Weather fetch failed");
             return _cached; // serve stale data over nothing
