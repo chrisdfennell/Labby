@@ -2,12 +2,24 @@ services:
   labby:
     build: .
     container_name: labby
-    ports:
-      - "5123:8080"
+    # Host networking: on QNAP, containers can't reach the host's own LAN IP for
+    # docker-published ports (hairpin NAT), which broke every Media integration.
+    # Host mode gives Labby the same network view as any LAN machine.
+    # (Linux only — on Docker Desktop for Windows/Mac, swap back to `ports: 5123:8080`.)
+    network_mode: host
     restart: unless-stopped
     depends_on:
       - kontainr
+    # The Dockerfile healthcheck probes port 8080, which in host mode is QTS; probe Labby's real port.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/5123 && printf 'GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     environment:
+      # In host mode the container must pick a free host port (8080 belongs to QTS).
+      ASPNETCORE_HTTP_PORTS: "5123"
       # Any appsettings.json value can be overridden here with __ as the separator.
       # Prefer putting secrets in a .env file next to this compose file (see .env.example).
       # Containers default to UTC; set TZ so weather timestamps and the clock read local time.
