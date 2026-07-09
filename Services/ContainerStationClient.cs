@@ -90,11 +90,8 @@ public sealed class ContainerStationClient(IHttpClientFactory httpFactory, IOpti
                 return;
 
             var http = httpFactory.CreateClient(HttpClientName);
-            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["username"] = _options.Username,
-                ["password"] = _options.Password,
-            });
+            // Container Station 3 parses the login body as JSON (form-encoding gets a 400).
+            using var content = JsonContent.Create(new { username = _options.Username, password = _options.Password });
             var response = await http.PostAsync("container-station/api/v1/login", content, ct);
             if (!response.IsSuccessStatusCode)
                 throw new HttpRequestException($"Container Station login failed with {(int)response.StatusCode}.");
