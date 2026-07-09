@@ -10,7 +10,8 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **Storage** (`/storage`) | NAS model/firmware/uptime, CPU/RAM, temperatures, volume usage bars, and per-disk SMART health |
 | **Files** (`/files`) | Browse QNAP shares and folders, download files through the app |
 | **Containers** (`/containers`) | Embedded [Kontainr](https://github.com/chrisdfennell/Kontainr) dashboard (full Docker management), with the QNAP Container Station start/stop table as a second tab |
-| **Media** (`/media`) | Plex now-playing (via Tautulli), active downloads with speeds (qBittorrent + NZBGet), upcoming episodes/movies (Sonarr/Radarr calendars), and pending Overseerr requests — auto-refreshing every 15s |
+| **Media** (`/media`) | Plex now-playing (via Tautulli), recently added (Plex), active downloads with speeds (qBittorrent + NZBGet), upcoming episodes/movies (Sonarr/Radarr calendars), and pending Overseerr requests — auto-refreshing every 15s |
+| **Uptime** (`/uptime`) | Status-page view of every dashboard service: uptime % (24h/7d), a 30-day daily bar strip, and an outage log with durations — history persisted to SQLite |
 | **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, plus 24h/48h/7d history charts (temperature, wind, humidity, barometer) logged to a small SQLite file every 5 minutes |
 
 ## Setup
@@ -79,6 +80,7 @@ Each source is independent — configure the ones you run and their cards appear
 
 ```jsonc
 "Media": {
+  "Plex":        { "Url": "http://192.168.1.50:32400", "ApiKey": "..." }, // recently added (ApiKey = X-Plex-Token)
   "Tautulli":    { "Url": "http://192.168.1.50:8181", "ApiKey": "..." },  // Plex now-playing
   "Sonarr":      { "Url": "http://192.168.1.50:8989", "ApiKey": "..." },  // upcoming episodes
   "Radarr":      { "Url": "http://192.168.1.50:7878", "ApiKey": "..." },  // upcoming movies

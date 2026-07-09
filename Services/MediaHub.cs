@@ -24,6 +24,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     private readonly Cached<UpcomingSnapshot> _tv = new();
     private readonly Cached<UpcomingSnapshot> _movies = new();
     private readonly Cached<RequestsSnapshot> _requests = new();
+    private readonly Cached<RecentlyAddedSnapshot> _recent = new();
     private readonly ConcurrentDictionary<string, string> _titleCache = new();
     private string? _qbitSid;
 
@@ -32,6 +33,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     public bool SonarrConfigured => _options.Sonarr.IsConfigured;
     public bool RadarrConfigured => _options.Radarr.IsConfigured;
     public bool OverseerrConfigured => _options.Overseerr.IsConfigured;
+    public bool PlexConfigured => _options.Plex.IsConfigured;
     public bool DownloadsConfigured => _options.Qbittorrent.IsConfigured || _options.Nzbget.IsConfigured;
 
     public Task<NowPlayingSnapshot> GetNowPlayingAsync(CancellationToken ct = default) =>
@@ -48,6 +50,9 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
 
     public Task<RequestsSnapshot> GetRequestsAsync(CancellationToken ct = default) =>
         GetCachedAsync(_requests, CalendarTtl, FetchRequestsAsync, ct);
+
+    public Task<RecentlyAddedSnapshot> GetRecentlyAddedAsync(CancellationToken ct = default) =>
+        GetCachedAsync(_recent, CalendarTtl, FetchRecentlyAddedAsync, ct);
 
     // ── Tautulli ─────────────────────────────────────────────────────────
 
@@ -322,6 +327,61 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             });
         }
         return (items, rate);
+    }
+
+    // ── Plex ─────────────────────────────────────────────────────────────
+
+    private async Task<RecentlyAddedSnapshot> FetchRecentlyAddedAsync(CancellationToken ct)
+    {
+        try
+        {
+            var http = httpFactory.CreateClient(HttpClientName);
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{_options.Plex.Url.TrimEnd('/')}/library/recentlyAdded");
+            request.Headers.Add("X-Plex-Token", _options.Plex.ApiKey);
+            request.Headers.Add("Accept", "application/json"); // Plex defaults to XML
+            using var response = await http.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+
+            var items = new List<RecentItem>();
+            if (doc.RootElement.TryGetProperty("MediaContainer", out var container)
+                && container.TryGetProperty("Metadata", out var metadata))
+            {
+                foreach (var m in metadata.EnumerateArray().Take(12))
+                {
+                    var type = Str(m, "type");
+                    items.Add(new RecentItem
+                    {
+                        Title = type switch
+                        {
+                            "episode" => Str(m, "grandparentTitle"),
+                            "season" => Str(m, "parentTitle"),
+                            _ => $"{Str(m, "title")}{(Num(m, "year") is { } y ? $" ({y:0})" : "")}",
+                        },
+                        Detail = type switch
+                        {
+                            "episode" => $"S{Num(m, "parentIndex"):00}E{Num(m, "index"):00} · {Str(m, "title")}",
+                            "season" => Str(m, "title"),
+                            "movie" => "Movie",
+                            _ => type,
+                        },
+                        AddedAt = Num(m, "addedAt") is { } added
+                            ? DateTimeOffset.FromUnixTimeSeconds((long)added).ToLocalTime()
+                            : DateTimeOffset.Now,
+                    });
+                }
+            }
+            return new RecentlyAddedSnapshot { Items = items };
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Plex fetch failed");
+            return new RecentlyAddedSnapshot { Error = Describe(ex) };
+        }
     }
 
     // ── Overseerr ────────────────────────────────────────────────────────

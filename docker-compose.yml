@@ -40,6 +40,8 @@ services:
       # Must be reachable from the BROWSER (it's an iframe src), not from inside the labby container.
       Kontainr__Url: ${KONTAINR_URL:-http://localhost:5124}
       # Media page integrations — all optional.
+      Media__Plex__Url: ${PLEX_BASE_URL:-}
+      Media__Plex__ApiKey: ${PLEX_TOKEN:-}
       Media__Tautulli__Url: ${TAUTULLI_BASE_URL:-}
       Media__Tautulli__ApiKey: ${TAUTULLI_API_KEY:-}
       Media__Sonarr__Url: ${SONARR_BASE_URL:-}

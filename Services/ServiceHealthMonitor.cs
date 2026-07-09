@@ -11,7 +11,7 @@ namespace Labby.Services;
 /// Pages read <see cref="Snapshot"/> and subscribe to <see cref="Changed"/> for
 /// live tile updates.
 /// </summary>
-public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOptions<DashboardOptions> options, AlertNotifier alerts, ILogger<ServiceHealthMonitor> logger)
+public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOptions<DashboardOptions> options, AlertNotifier alerts, ServiceHistoryStore historyStore, ILogger<ServiceHealthMonitor> logger)
     : BackgroundService
 {
     public const string HttpClientName = "health-probe";
@@ -45,6 +45,7 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
             {
                 await Task.WhenAll(options.Value.Services.Select(s => ProbeAsync(s, stoppingToken)));
                 Changed?.Invoke();
+                await historyStore.RecordCycleAsync(Snapshot, stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -116,6 +117,7 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
         // Alert on transitions only — the first-ever probe of a service stays quiet.
         if (previous?.IsUp is { } wasUp && wasUp != up)
         {
+            await historyStore.RecordTransitionAsync(service.Name, up, now, error, ct);
             var message = up
                 ? $"🟢 {service.Name} is back UP ({latency}ms) after {Format.ShortDuration(now - (previous.StateSince ?? now))} down"
                 : $"🔴 {service.Name} is DOWN — {error ?? "no response"}";

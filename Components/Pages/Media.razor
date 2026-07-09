@@ -180,6 +180,41 @@ else
                 </div>
             </div>
         }
+        @if (Hub.PlexConfigured)
+        {
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">🆕 Recently added</div>
+                    <div class="card-body">
+                        @if (_recent is null)
+                        {
+                            <span class="text-muted">Loading…</span>
+                        }
+                        else if (_recent.Error is not null)
+                        {
+                            <span class="text-danger small">Plex: @_recent.Error</span>
+                        }
+                        else if (_recent.Items.Count == 0)
+                        {
+                            <span class="text-muted">Nothing new lately.</span>
+                        }
+                        else
+                        {
+                            @foreach (var i in _recent.Items)
+                            {
+                                <div class="media-upcoming">
+                                    <div class="d-flex justify-content-between gap-2">
+                                        <span class="fw-semibold text-truncate">@i.Title</span>
+                                        <span class="text-muted small text-nowrap">@Format.ShortDuration(DateTimeOffset.Now - i.AddedAt) ago</span>
+                                    </div>
+                                    <div class="text-muted small text-truncate">@i.Detail</div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
         @if (Hub.OverseerrConfigured)
         {
             <div class="col-lg-4">
@@ -224,6 +259,7 @@ else
     private UpcomingSnapshot? _tv;
     private UpcomingSnapshot? _movies;
     private RequestsSnapshot? _requests;
+    private RecentlyAddedSnapshot? _recent;
     private Timer? _refreshTimer;
 
     // Data loads after first render so prerendering never blocks on the media stack.
@@ -256,6 +292,8 @@ else
             tasks.Add(AssignAsync(Hub.GetUpcomingMoviesAsync(), v => _movies = v));
         if (Hub.OverseerrConfigured)
             tasks.Add(AssignAsync(Hub.GetRequestsAsync(), v => _requests = v));
+        if (Hub.PlexConfigured)
+            tasks.Add(AssignAsync(Hub.GetRecentlyAddedAsync(), v => _recent = v));
         return Task.WhenAll(tasks);
     }
 

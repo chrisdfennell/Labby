@@ -85,6 +85,7 @@ builder.Services.AddSingleton<ContainerStationClient>();
 builder.Services.AddSingleton<AmbientWeatherClient>();
 builder.Services.AddSingleton<AlertNotifier>();
 builder.Services.AddSingleton<MediaHub>();
+builder.Services.AddSingleton<ServiceHistoryStore>();
 builder.Services.AddSingleton<ServiceHealthMonitor>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ServiceHealthMonitor>());
 builder.Services.AddSingleton<WeatherHistoryService>();

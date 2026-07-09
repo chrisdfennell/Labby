@@ -1,0 +1,137 @@
+@page "/uptime"
+@rendermode InteractiveServer
+@inject ServiceHealthMonitor Health
+@inject ServiceHistoryStore Store
+@implements IDisposable
+
+<PageTitle>Labby — Uptime</PageTitle>
+
+<h1 class="mb-1">📈 Uptime</h1>
+<p class="text-muted mb-4">Probed every 30 seconds; history survives restarts. Last 30 days per service.</p>
+
+@if (_services.Count == 0)
+{
+    <div class="alert alert-secondary">
+        No services configured — add tiles under <code>Dashboard:Services</code> in <code>appsettings.json</code>.
+    </div>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            @foreach (var s in _services)
+            {
+                var uptime = _uptimes.GetValueOrDefault(s.Name);
+                <div class="uptime-row">
+                    <div class="uptime-name">
+                        @if (s.IsUp is null)
+                        {
+                            <span class="status-dot pending"></span>
+                        }
+                        else
+                        {
+                            <span class="status-dot @(s.IsUp == true ? "up" : "down")"></span>
+                        }
+                        <span class="fw-semibold">@s.Name</span>
+                    </div>
+                    <div class="uptime-days" role="img" aria-label="Daily uptime, last 30 days">
+                        @foreach (var day in Last30Days())
+                        {
+                            var pct = uptime?.Days.TryGetValue(day, out var v) == true ? v : (double?)null;
+                            <span class="uptime-cell @CellClass(pct)" title="@day.ToString("MMM d"): @(pct is { } p ? $"{p:0.##}% up" : "no data")"></span>
+                        }
+                    </div>
+                    <div class="uptime-pcts text-muted">
+                        <span title="Last 24 hours">24h <strong class="@PctClass(uptime?.Percent24h)">@Pct(uptime?.Percent24h)</strong></span>
+                        <span title="Last 7 days">7d <strong class="@PctClass(uptime?.Percent7d)">@Pct(uptime?.Percent7d)</strong></span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <h4 class="mb-3">Recent outages</h4>
+    @if (_outages.Count == 0)
+    {
+        <p class="text-muted">No outages recorded. 🎉</p>
+    }
+    else
+    {
+        <table class="table align-middle">
+            <thead>
+                <tr><th>Service</th><th>Started</th><th>Duration</th><th>Reason</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var o in _outages)
+                {
+                    <tr>
+                        <td>@o.Service</td>
+                        <td>@o.Started.ToString("MMM d · HH:mm")</td>
+                        <td>
+                            @if (o.Ended is { } ended)
+                            {
+                                @Format.ShortDuration(ended - o.Started)
+                            }
+                            else
+                            {
+                                <span class="state-down">ongoing (@Format.ShortDuration(DateTimeOffset.Now - o.Started))</span>
+                            }
+                        </td>
+                        <td class="text-muted small">@o.Error</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private IReadOnlyList<ServiceStatus> _services = [];
+    private IReadOnlyDictionary<string, ServiceHistoryStore.ServiceUptime> _uptimes =
+        new Dictionary<string, ServiceHistoryStore.ServiceUptime>();
+    private IReadOnlyList<ServiceHistoryStore.OutageRecord> _outages = [];
+    private Timer? _refreshTimer;
+
+    protected override void OnInitialized()
+    {
+        _services = Health.Snapshot;
+    }
+
+    // History reads hit local SQLite; still deferred past prerender to keep first paint instant.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await LoadAsync();
+        StateHasChanged();
+        _refreshTimer = new Timer(_ => _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    private async Task LoadAsync()
+    {
+        _services = Health.Snapshot;
+        _uptimes = await Store.GetUptimesAsync();
+        _outages = await Store.GetRecentOutagesAsync();
+    }
+
+    private static IEnumerable<DateOnly> Last30Days()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        for (var i = 29; i >= 0; i--)
+            yield return today.AddDays(-i);
+    }
+
+    private static string Pct(double? pct) => pct is { } p ? $"{p:0.#}%" : "—";
+
+    private static string CellClass(double? pct) =>
+        pct is null ? "nodata" : pct >= 99 ? "good" : pct >= 90 ? "warn" : "bad";
+
+    private static string PctClass(double? pct) =>
+        pct is null ? "" : pct >= 99 ? "state-up" : pct >= 90 ? "state-warn" : "state-down";
+
+    public void Dispose() => _refreshTimer?.Dispose();
+}

@@ -57,6 +57,20 @@ public sealed record UpcomingItem
     public bool HasFile { get; init; }
 }
 
+/// <summary>Latest additions to the Plex libraries.</summary>
+public sealed record RecentlyAddedSnapshot
+{
+    public IReadOnlyList<RecentItem> Items { get; init; } = [];
+    public string? Error { get; init; }
+}
+
+public sealed record RecentItem
+{
+    public string Title { get; init; } = "";
+    public string Detail { get; init; } = "";
+    public DateTimeOffset AddedAt { get; init; }
+}
+
 /// <summary>Pending Overseerr requests.</summary>
 public sealed record RequestsSnapshot
 {

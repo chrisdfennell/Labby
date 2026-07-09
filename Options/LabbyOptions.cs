@@ -52,12 +52,14 @@ public sealed class MediaOptions
     public ApiEndpoint Sonarr { get; set; } = new();
     public ApiEndpoint Radarr { get; set; } = new();
     public ApiEndpoint Overseerr { get; set; } = new();
+    /// <summary>Direct Plex access for "recently added"; ApiKey holds the X-Plex-Token.</summary>
+    public ApiEndpoint Plex { get; set; } = new();
     public CredentialEndpoint Qbittorrent { get; set; } = new();
     public CredentialEndpoint Nzbget { get; set; } = new();
 
     public bool AnyConfigured =>
         Tautulli.IsConfigured || Sonarr.IsConfigured || Radarr.IsConfigured
-        || Overseerr.IsConfigured || Qbittorrent.IsConfigured || Nzbget.IsConfigured;
+        || Overseerr.IsConfigured || Plex.IsConfigured || Qbittorrent.IsConfigured || Nzbget.IsConfigured;
 
     public sealed class ApiEndpoint
     {

@@ -266,6 +266,70 @@ code {
     padding: 0.15rem 0.7rem;
 }
 
+/* ── Uptime page ─────────────────────────────────────────────────────── */
+.uptime-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.55rem 0;
+}
+
+    .uptime-row + .uptime-row {
+        border-top: 1px solid var(--lab-border);
+    }
+
+.uptime-name {
+    flex: 0 0 11rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.uptime-days {
+    flex: 1;
+    display: flex;
+    gap: 2px;
+    min-width: 0;
+}
+
+.uptime-cell {
+    flex: 1;
+    height: 1.4rem;
+    max-width: 12px;
+    border-radius: 2px;
+}
+
+    .uptime-cell.good { background: var(--lab-accent); }
+    .uptime-cell.warn { background: var(--lab-amber); }
+    .uptime-cell.bad { background: var(--lab-red); }
+    .uptime-cell.nodata { background: #22303f; }
+
+.uptime-pcts {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 1rem;
+    font-family: var(--lab-mono);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.state-warn {
+    color: var(--lab-amber);
+}
+
+@media (max-width: 700px) {
+    .uptime-row {
+        flex-wrap: wrap;
+        gap: 0.4rem;
+    }
+
+    .uptime-days {
+        flex-basis: 100%;
+        order: 3;
+    }
+}
+
 /* ── Media page ──────────────────────────────────────────────────────── */
 .media-session {
     padding: 0.45rem 0;
