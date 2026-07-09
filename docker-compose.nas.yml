@@ -29,8 +29,23 @@ services:
       AmbientWeather__ApiKey: ${AMBIENT_API_KEY:-}
       AmbientWeather__ApplicationKey: ${AMBIENT_APP_KEY:-}
       AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
-      # Loaded by the browser: use the NAS LAN IP, e.g. http://192.168.86.54:5124
+      # Loaded by the browser: use the NAS LAN IP, e.g. http://192.168.86.57:5124
       Kontainr__Url: ${KONTAINR_URL:-}
+      # Media page integrations — all optional.
+      Media__Tautulli__Url: ${TAUTULLI_BASE_URL:-}
+      Media__Tautulli__ApiKey: ${TAUTULLI_API_KEY:-}
+      Media__Sonarr__Url: ${SONARR_BASE_URL:-}
+      Media__Sonarr__ApiKey: ${SONARR_API_KEY:-}
+      Media__Radarr__Url: ${RADARR_BASE_URL:-}
+      Media__Radarr__ApiKey: ${RADARR_API_KEY:-}
+      Media__Overseerr__Url: ${OVERSEERR_BASE_URL:-}
+      Media__Overseerr__ApiKey: ${OVERSEERR_API_KEY:-}
+      Media__Qbittorrent__Url: ${QBITTORRENT_BASE_URL:-}
+      Media__Qbittorrent__Username: ${QBITTORRENT_USERNAME:-}
+      Media__Qbittorrent__Password: ${QBITTORRENT_PASSWORD:-}
+      Media__Nzbget__Url: ${NZBGET_BASE_URL:-}
+      Media__Nzbget__Username: ${NZBGET_USERNAME:-}
+      Media__Nzbget__Password: ${NZBGET_PASSWORD:-}
     volumes:
       # Weather history database survives container rebuilds.
       - labby-data:/app/data

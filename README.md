@@ -10,6 +10,7 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **Storage** (`/storage`) | NAS model/firmware/uptime, CPU/RAM, temperatures, volume usage bars, and per-disk SMART health |
 | **Files** (`/files`) | Browse QNAP shares and folders, download files through the app |
 | **Containers** (`/containers`) | Embedded [Kontainr](https://github.com/chrisdfennell/Kontainr) dashboard (full Docker management), with the QNAP Container Station start/stop table as a second tab |
+| **Media** (`/media`) | Plex now-playing (via Tautulli), active downloads with speeds (qBittorrent + NZBGet), upcoming episodes/movies (Sonarr/Radarr calendars), and pending Overseerr requests — auto-refreshing every 15s |
 | **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, plus 24h/48h/7d history charts (temperature, wind, humidity, barometer) logged to a small SQLite file every 5 minutes |
 
 ## Setup
@@ -72,7 +73,24 @@ Each entry becomes a tile with a health check (any HTTP response below 500 count
 
 `HealthUrl` is optional — use it when the probe should hit a different URL than the one the tile opens.
 
-### 5. Alerts (optional)
+### 5. Media page (optional)
+
+Each source is independent — configure the ones you run and their cards appear; the rest stay hidden:
+
+```jsonc
+"Media": {
+  "Tautulli":    { "Url": "http://192.168.1.50:8181", "ApiKey": "..." },  // Plex now-playing
+  "Sonarr":      { "Url": "http://192.168.1.50:8989", "ApiKey": "..." },  // upcoming episodes
+  "Radarr":      { "Url": "http://192.168.1.50:7878", "ApiKey": "..." },  // upcoming movies
+  "Overseerr":   { "Url": "http://192.168.1.50:5055", "ApiKey": "..." },  // pending requests
+  "Qbittorrent": { "Url": "http://192.168.1.50:8080", "Username": "admin", "Password": "" },
+  "Nzbget":      { "Url": "http://192.168.1.50:6789", "Username": "nzbget", "Password": "" }
+}
+```
+
+With Docker, use the `TAUTULLI_*` / `SONARR_*` / `RADARR_*` / `OVERSEERR_*` / `QBITTORRENT_*` / `NZBGET_*` variables in `.env`. API keys live in each app's settings UI (Sonarr/Radarr: Settings → General; Tautulli: Settings → Web Interface; Overseerr: Settings). An empty qBittorrent password works if its "bypass authentication for clients on whitelisted IPs" covers the Labby host.
+
+### 6. Alerts (optional)
 
 Set a webhook and Labby posts a message whenever a dashboard service goes down or comes back:
 
@@ -86,7 +104,7 @@ Discord (`discord.com/api/webhooks/…`) and Slack (`hooks.slack.com/…`) URLs 
 
 Weather history lands in `data/labby.db` (override with `History:DatabasePath`); the compose files mount a `labby-data` volume so it survives rebuilds.
 
-### 6. Login (optional)
+### 7. Login (optional)
 
 Labby ships with a simple cookie login that is **off by default**. Set a password to turn it on:
 
@@ -150,4 +168,4 @@ Labby is then at `http://<nas-ip>:5123`. Notes:
 
 `GET /healthz` returns `200 ok` without authentication, and the Docker image has a built-in `HEALTHCHECK` against it — `docker ps` shows the container as `healthy`/`unhealthy`, and you can point Uptime Kuma (or a Labby dashboard tile on another instance) at it.
 
-> ⚠️ Labby can browse your NAS and stop containers. Enable the login (section 6) and keep it on your LAN — don't port-forward it.
+> ⚠️ Labby can browse your NAS and stop containers. Enable the login (section 7) and keep it on your LAN — don't port-forward it.

@@ -1,0 +1,267 @@
+@page "/media"
+@rendermode InteractiveServer
+@inject MediaHub Hub
+@implements IDisposable
+
+<PageTitle>Labby — Media</PageTitle>
+
+<h1 class="mb-4">🎬 Media</h1>
+
+@if (!Hub.AnyConfigured)
+{
+    <div class="alert alert-warning">
+        No media services configured. Set URLs and API keys under <code>Media</code> in <code>appsettings.json</code>
+        (or the <code>TAUTULLI_*</code>, <code>SONARR_*</code>, <code>RADARR_*</code>, <code>QBITTORRENT_*</code>,
+        <code>NZBGET_*</code>, <code>OVERSEERR_*</code> variables in <code>.env</code>).
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        @if (Hub.TautulliConfigured)
+        {
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header">▶️ Now playing @(_nowPlaying?.Sessions.Count is > 0 and var n ? $"— {n}" : "")</div>
+                    <div class="card-body">
+                        @if (_nowPlaying is null)
+                        {
+                            <span class="text-muted">Loading…</span>
+                        }
+                        else if (_nowPlaying.Error is not null)
+                        {
+                            <span class="text-danger small">Tautulli: @_nowPlaying.Error</span>
+                        }
+                        else if (_nowPlaying.Sessions.Count == 0)
+                        {
+                            <span class="text-muted">Nothing streaming right now.</span>
+                        }
+                        else
+                        {
+                            @foreach (var s in _nowPlaying.Sessions)
+                            {
+                                <div class="media-session">
+                                    <div class="d-flex justify-content-between align-items-baseline gap-2">
+                                        <span class="fw-semibold text-truncate">@(s.State == "paused" ? "⏸" : "▶") @s.Title</span>
+                                        <span class="badge bg-secondary">@s.Decision</span>
+                                    </div>
+                                    <div class="text-muted small">@s.User · @s.Player</div>
+                                    <div class="progress media-progress" role="progressbar" aria-label="Playback progress"
+                                         aria-valuenow="@((int)s.ProgressPercent)" aria-valuemin="0" aria-valuemax="100">
+                                        <div class="progress-bar bg-success" style="width: @((int)s.ProgressPercent)%"></div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        @if (Hub.DownloadsConfigured)
+        {
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between">
+                        <span>⬇️ Downloads</span>
+                        @if (_downloads is not null)
+                        {
+                            <span>↓ @Format.Bytes(_downloads.DownloadBps)/s · ↑ @Format.Bytes(_downloads.UploadBps)/s</span>
+                        }
+                    </div>
+                    <div class="card-body">
+                        @if (_downloads is null)
+                        {
+                            <span class="text-muted">Loading…</span>
+                        }
+                        else
+                        {
+                            @if (_downloads.QbitError is not null)
+                            {
+                                <div class="text-danger small">qBittorrent: @_downloads.QbitError</div>
+                            }
+                            @if (_downloads.NzbgetError is not null)
+                            {
+                                <div class="text-danger small">NZBGet: @_downloads.NzbgetError</div>
+                            }
+                            @if (_downloads.Items.Count == 0 && _downloads.QbitError is null && _downloads.NzbgetError is null)
+                            {
+                                <span class="text-muted">No active downloads.</span>
+                            }
+                            @foreach (var d in _downloads.Items)
+                            {
+                                <div class="media-session">
+                                    <div class="d-flex justify-content-between align-items-baseline gap-2">
+                                        <span class="text-truncate" title="@d.Name">@d.Name</span>
+                                        <span class="text-muted small text-nowrap">@Format.Bytes(d.SpeedBps)/s</span>
+                                    </div>
+                                    <div class="text-muted small">
+                                        @d.Source · @d.State · @Format.Bytes(d.SizeBytes)
+                                        @(d.Eta is { } eta ? $" · {Format.ShortDuration(eta)} left" : "")
+                                    </div>
+                                    <div class="progress media-progress" role="progressbar" aria-label="Download progress"
+                                         aria-valuenow="@((int)d.ProgressPercent)" aria-valuemin="0" aria-valuemax="100">
+                                        <div class="progress-bar" style="width: @((int)d.ProgressPercent)%"></div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        @if (Hub.SonarrConfigured)
+        {
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">📺 Upcoming episodes (7 days)</div>
+                    <div class="card-body">
+                        @if (_tv is null)
+                        {
+                            <span class="text-muted">Loading…</span>
+                        }
+                        else if (_tv.SonarrError is not null)
+                        {
+                            <span class="text-danger small">Sonarr: @_tv.SonarrError</span>
+                        }
+                        else if (_tv.Items.Count == 0)
+                        {
+                            <span class="text-muted">Nothing airing this week.</span>
+                        }
+                        else
+                        {
+                            @foreach (var i in _tv.Items)
+                            {
+                                <div class="media-upcoming">
+                                    <div class="d-flex justify-content-between gap-2">
+                                        <span class="fw-semibold text-truncate">@i.Title</span>
+                                        <span class="text-muted small text-nowrap">@UpcomingDate(i.At)</span>
+                                    </div>
+                                    <div class="text-muted small text-truncate">@(i.HasFile ? "✔ " : "")@i.Detail</div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        @if (Hub.RadarrConfigured)
+        {
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">🎞️ Upcoming movies (30 days)</div>
+                    <div class="card-body">
+                        @if (_movies is null)
+                        {
+                            <span class="text-muted">Loading…</span>
+                        }
+                        else if (_movies.RadarrError is not null)
+                        {
+                            <span class="text-danger small">Radarr: @_movies.RadarrError</span>
+                        }
+                        else if (_movies.Items.Count == 0)
+                        {
+                            <span class="text-muted">No releases this month.</span>
+                        }
+                        else
+                        {
+                            @foreach (var i in _movies.Items)
+                            {
+                                <div class="media-upcoming">
+                                    <div class="d-flex justify-content-between gap-2">
+                                        <span class="fw-semibold text-truncate">@i.Title</span>
+                                        <span class="text-muted small text-nowrap">@UpcomingDate(i.At)</span>
+                                    </div>
+                                    <div class="text-muted small">@(i.HasFile ? "✔ " : "")@i.Detail</div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        @if (Hub.OverseerrConfigured)
+        {
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">🎟️ Pending requests</div>
+                    <div class="card-body">
+                        @if (_requests is null)
+                        {
+                            <span class="text-muted">Loading…</span>
+                        }
+                        else if (_requests.Error is not null)
+                        {
+                            <span class="text-danger small">Overseerr: @_requests.Error</span>
+                        }
+                        else if (_requests.Requests.Count == 0)
+                        {
+                            <span class="text-muted">No pending requests. 🎉</span>
+                        }
+                        else
+                        {
+                            @foreach (var r in _requests.Requests)
+                            {
+                                <div class="media-upcoming">
+                                    <div class="d-flex justify-content-between gap-2">
+                                        <span class="fw-semibold text-truncate">@r.Title</span>
+                                        <span class="badge bg-secondary">@r.Type</span>
+                                    </div>
+                                    <div class="text-muted small">@r.RequestedBy · @r.At.ToString("MMM d")</div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private NowPlayingSnapshot? _nowPlaying;
+    private DownloadsSnapshot? _downloads;
+    private UpcomingSnapshot? _tv;
+    private UpcomingSnapshot? _movies;
+    private RequestsSnapshot? _requests;
+    private Timer? _refreshTimer;
+
+    // Data loads after first render so prerendering never blocks on the media stack.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await LoadAsync();
+        StateHasChanged();
+        _refreshTimer = new Timer(_ => _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+    }
+
+    // The hub caches per source (10s live / 5min calendars), so refreshing
+    // everything on one timer is cheap.
+    private async Task LoadAsync()
+    {
+        if (!Hub.AnyConfigured)
+            return;
+        var nowPlaying = Hub.TautulliConfigured ? Hub.GetNowPlayingAsync() : Task.FromResult<NowPlayingSnapshot>(null!);
+        var downloads = Hub.DownloadsConfigured ? Hub.GetDownloadsAsync() : Task.FromResult<DownloadsSnapshot>(null!);
+        var tv = Hub.SonarrConfigured ? Hub.GetUpcomingTvAsync() : Task.FromResult<UpcomingSnapshot>(null!);
+        var movies = Hub.RadarrConfigured ? Hub.GetUpcomingMoviesAsync() : Task.FromResult<UpcomingSnapshot>(null!);
+        var requests = Hub.OverseerrConfigured ? Hub.GetRequestsAsync() : Task.FromResult<RequestsSnapshot>(null!);
+        await Task.WhenAll(nowPlaying, downloads, tv, movies, requests);
+        _nowPlaying = nowPlaying.Result;
+        _downloads = downloads.Result;
+        _tv = tv.Result;
+        _movies = movies.Result;
+        _requests = requests.Result;
+    }
+
+    private static string UpcomingDate(DateTimeOffset at) =>
+        at.Date == DateTime.Today ? $"today {at:HH:mm}"
+        : at.Date == DateTime.Today.AddDays(1) ? $"tomorrow {at:HH:mm}"
+        : at.ToString("ddd MMM d");
+
+    public void Dispose() => _refreshTimer?.Dispose();
+}

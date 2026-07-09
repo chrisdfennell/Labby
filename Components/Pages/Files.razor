@@ -23,7 +23,7 @@ else
                 }
                 else
                 {
-                    <a href="" @onclick="() => NavigateToDepthAsync(0)" @onclick:preventDefault>Shares</a>
+                    <button type="button" class="link-btn" @onclick="() => NavigateToDepthAsync(0)">Shares</button>
                 }
             </li>
             @for (var i = 0; i < _segments.Count; i++)
@@ -36,7 +36,7 @@ else
                 else
                 {
                     <li class="breadcrumb-item">
-                        <a href="" @onclick="() => NavigateToDepthAsync(depth)" @onclick:preventDefault>@_segments[i]</a>
+                        <button type="button" class="link-btn" @onclick="() => NavigateToDepthAsync(depth)">@_segments[i]</button>
                     </li>
                 }
             }
@@ -68,9 +68,9 @@ else
                         <td>
                             @if (entry.IsFolder)
                             {
-                                <a href="" @onclick="() => OpenFolderAsync(entry.Name)" @onclick:preventDefault>
+                                <button type="button" class="link-btn" @onclick="() => OpenFolderAsync(entry.Name)">
                                     📁 @entry.Name
-                                </a>
+                                </button>
                             }
                             else
                             {

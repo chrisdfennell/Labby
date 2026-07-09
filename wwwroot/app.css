@@ -65,6 +65,21 @@ a, .btn-link {
     color: var(--lab-accent);
 }
 
+/* Action "links" that must never navigate (folder rows, breadcrumbs) */
+.link-btn {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--lab-accent);
+    text-decoration: underline;
+    cursor: pointer;
+    font: inherit;
+}
+
+    .link-btn:hover {
+        color: #5ce8c4;
+    }
+
 code {
     color: var(--lab-amber);
     background: var(--lab-panel-deep);
@@ -250,6 +265,28 @@ code {
     font-size: 0.78rem;
     padding: 0.15rem 0.7rem;
 }
+
+/* ── Media page ──────────────────────────────────────────────────────── */
+.media-session {
+    padding: 0.45rem 0;
+}
+
+    .media-session + .media-session {
+        border-top: 1px solid var(--lab-border);
+    }
+
+.media-progress {
+    height: 4px;
+    margin-top: 0.35rem;
+}
+
+.media-upcoming {
+    padding: 0.35rem 0;
+}
+
+    .media-upcoming + .media-upcoming {
+        border-top: 1px solid var(--lab-border);
+    }
 
 /* ── Status dots ─────────────────────────────────────────────────────── */
 .status-dot {

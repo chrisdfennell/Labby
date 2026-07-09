@@ -18,6 +18,7 @@ builder.Services.Configure<KontainrOptions>(builder.Configuration.GetSection(Kon
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
 builder.Services.Configure<HistoryOptions>(builder.Configuration.GetSection(HistoryOptions.SectionName));
 builder.Services.Configure<AlertOptions>(builder.Configuration.GetSection(AlertOptions.SectionName));
+builder.Services.Configure<MediaOptions>(builder.Configuration.GetSection(MediaOptions.SectionName));
 
 // Login is opt-in: setting Auth:Password turns it on, otherwise Labby stays open (trusted LAN).
 var authEnabled = !string.IsNullOrWhiteSpace(builder.Configuration[$"{AuthOptions.SectionName}:Password"]);
@@ -68,6 +69,8 @@ builder.Services.AddHttpClient(AmbientWeatherClient.HttpClientName, client =>
 
 builder.Services.AddHttpClient(AlertNotifier.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
 
+builder.Services.AddHttpClient(MediaHub.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
+
 builder.Services.AddHttpClient(ServiceHealthMonitor.HttpClientName)
     .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(10))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
@@ -81,6 +84,7 @@ builder.Services.AddSingleton<QnapFileStation>();
 builder.Services.AddSingleton<ContainerStationClient>();
 builder.Services.AddSingleton<AmbientWeatherClient>();
 builder.Services.AddSingleton<AlertNotifier>();
+builder.Services.AddSingleton<MediaHub>();
 builder.Services.AddSingleton<ServiceHealthMonitor>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ServiceHealthMonitor>());
 builder.Services.AddSingleton<WeatherHistoryService>();

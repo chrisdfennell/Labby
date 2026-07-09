@@ -43,6 +43,38 @@ public sealed class KontainrOptions
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
 }
 
+/// <summary>Media-stack integrations shown on the Media page. Each source is optional.</summary>
+public sealed class MediaOptions
+{
+    public const string SectionName = "Media";
+
+    public ApiEndpoint Tautulli { get; set; } = new();
+    public ApiEndpoint Sonarr { get; set; } = new();
+    public ApiEndpoint Radarr { get; set; } = new();
+    public ApiEndpoint Overseerr { get; set; } = new();
+    public CredentialEndpoint Qbittorrent { get; set; } = new();
+    public CredentialEndpoint Nzbget { get; set; } = new();
+
+    public bool AnyConfigured =>
+        Tautulli.IsConfigured || Sonarr.IsConfigured || Radarr.IsConfigured
+        || Overseerr.IsConfigured || Qbittorrent.IsConfigured || Nzbget.IsConfigured;
+
+    public sealed class ApiEndpoint
+    {
+        public string Url { get; set; } = "";
+        public string ApiKey { get; set; } = "";
+        public bool IsConfigured => !string.IsNullOrWhiteSpace(Url) && !string.IsNullOrWhiteSpace(ApiKey);
+    }
+
+    public sealed class CredentialEndpoint
+    {
+        public string Url { get; set; } = "";
+        public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
+        public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
+    }
+}
+
 public sealed class HistoryOptions
 {
     public const string SectionName = "History";
