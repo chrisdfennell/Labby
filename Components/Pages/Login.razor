@@ -1,0 +1,92 @@
+@page "/login"
+@using System.Security.Claims
+@using System.Security.Cryptography
+@using System.Text
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Options
+@attribute [AllowAnonymous]
+@layout Layout.BareLayout
+@inject IOptions<AuthOptions> Auth
+@inject NavigationManager Nav
+
+<PageTitle>Labby — Login</PageTitle>
+
+<div class="card login-card">
+    <div class="card-body p-4">
+        <div class="login-brand mb-1"><span class="brand-prompt">&gt;</span>labby<span class="brand-cursor">_</span></div>
+        <div class="text-muted small mb-4">authentication required</div>
+
+        <EditForm Model="Model" OnValidSubmit="LogInAsync" FormName="login">
+            <div class="mb-3">
+                <label class="form-label small text-muted" for="username">user</label>
+                <InputText id="username" class="form-control" @bind-Value="Model.Username" autocomplete="username" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label small text-muted" for="password">password</label>
+                <InputText id="password" type="password" class="form-control" @bind-Value="Model.Password" autocomplete="current-password" />
+            </div>
+            @if (_error is not null)
+            {
+                <div class="text-danger small mb-3">✗ @_error</div>
+            }
+            <button type="submit" class="btn btn-outline-primary w-100">log in</button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    public HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromForm]
+    public LoginModel Model { get; set; } = null!;
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        Model ??= new();
+
+        // Nothing to log into when auth is off; also skip the form for already-signed-in users.
+        if (!Auth.Value.IsEnabled || HttpContext?.User.Identity?.IsAuthenticated == true)
+            Nav.NavigateTo(SafeReturnUrl());
+    }
+
+    private async Task LogInAsync()
+    {
+        var options = Auth.Value;
+        var userOk = string.Equals(Model.Username.Trim(), options.Username, StringComparison.OrdinalIgnoreCase);
+        var passOk = CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(Model.Password), Encoding.UTF8.GetBytes(options.Password));
+        if (!userOk || !passOk)
+        {
+            _error = "invalid credentials";
+            return;
+        }
+
+        var identity = new ClaimsIdentity(
+            [new Claim(ClaimTypes.Name, options.Username)],
+            CookieAuthenticationDefaults.AuthenticationScheme);
+        await HttpContext!.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(identity),
+            new AuthenticationProperties { IsPersistent = true });
+
+        Nav.NavigateTo(SafeReturnUrl(), forceLoad: true);
+    }
+
+    // Only follow same-site paths so ?returnUrl= can't bounce the user to another host.
+    private string SafeReturnUrl() =>
+        ReturnUrl is ['/', not '/', ..] ? ReturnUrl : "/";
+
+    public sealed class LoginModel
+    {
+        public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
+    }
+}

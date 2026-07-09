@@ -10,6 +10,11 @@ services:
     environment:
       # Any appsettings.json value can be overridden here with __ as the separator.
       # Prefer putting secrets in a .env file next to this compose file (see .env.example).
+      # Setting a password turns on Labby's login screen.
+      Auth__Username: ${LABBY_AUTH_USERNAME:-labby}
+      Auth__Password: ${LABBY_AUTH_PASSWORD:-}
+      # Webhook (ntfy topic URL, Discord, or Slack) for service down/recovery alerts.
+      Alerts__WebhookUrl: ${LABBY_ALERT_WEBHOOK:-}
       Qnap__Host: ${QNAP_HOST:-}
       Qnap__Port: ${QNAP_PORT:-8080}
       Qnap__UseHttps: ${QNAP_USE_HTTPS:-false}
@@ -20,6 +25,9 @@ services:
       AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
       # Must be reachable from the BROWSER (it's an iframe src), not from inside the labby container.
       Kontainr__Url: ${KONTAINR_URL:-http://localhost:5124}
+    volumes:
+      # Weather history database survives container rebuilds.
+      - labby-data:/app/data
 
   kontainr:
     image: fennch/kontainr:latest
@@ -47,4 +55,5 @@ services:
       - kontainr
 
 volumes:
+  labby-data:
   kontainr-data:

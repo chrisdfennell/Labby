@@ -61,3 +61,20 @@
         border-bottom-color: var(--lab-accent);
         background: linear-gradient(0deg, var(--lab-accent-dim), transparent 65%);
     }
+
+::deep .logout-form {
+    display: flex;
+    align-items: stretch;
+    margin-left: 0.5rem;
+}
+
+::deep .logout-btn {
+    background: none;
+    border-left: 0;
+    border-right: 0;
+    cursor: pointer;
+}
+
+    ::deep .logout-btn:hover {
+        color: var(--lab-red);
+    }

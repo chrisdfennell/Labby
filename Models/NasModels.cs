@@ -63,7 +63,15 @@ public sealed record ServiceStatus
     public long? LatencyMs { get; init; }
     public DateTimeOffset? CheckedAt { get; init; }
     public string? Error { get; init; }
+
+    /// <summary>Recent probe results, oldest first.</summary>
+    public IReadOnlyList<ProbeSample> History { get; init; } = [];
+    public double? UptimePercent { get; init; }
+    /// <summary>When the service last flipped between up and down.</summary>
+    public DateTimeOffset? StateSince { get; init; }
 }
+
+public readonly record struct ProbeSample(DateTimeOffset At, bool Up, long? LatencyMs);
 
 public sealed record WeatherReading
 {
@@ -88,4 +96,17 @@ public sealed record WeatherReading
         ? "—"
         : new[] { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW" }
             [(int)Math.Round(((d % 360) + 360) % 360 / 22.5) % 16];
+}
+
+/// <summary>One logged weather sample, as stored in the history database.</summary>
+public sealed record WeatherPoint
+{
+    public DateTimeOffset At { get; init; }
+    public double? TempF { get; init; }
+    public double? FeelsLikeF { get; init; }
+    public double? HumidityPercent { get; init; }
+    public double? BarometerInHg { get; init; }
+    public double? WindSpeedMph { get; init; }
+    public double? WindGustMph { get; init; }
+    public double? DailyRainIn { get; init; }
 }

@@ -19,4 +19,12 @@ public static class Format
         uptime is not { } u ? "—"
         : u.Days > 0 ? $"{u.Days}d {u.Hours}h {u.Minutes}m"
         : $"{u.Hours}h {u.Minutes}m";
+
+    /// <summary>Compact "how long ago" style duration: 45s, 12m, 3h 5m, 2d 6h.</summary>
+    public static string ShortDuration(TimeSpan d) =>
+        d < TimeSpan.Zero ? "0s"
+        : d.TotalSeconds < 60 ? $"{(int)d.TotalSeconds}s"
+        : d.TotalMinutes < 60 ? $"{(int)d.TotalMinutes}m"
+        : d.TotalHours < 24 ? $"{(int)d.TotalHours}h {d.Minutes}m"
+        : $"{(int)d.TotalDays}d {d.Hours}h";
 }

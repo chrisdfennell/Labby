@@ -6,6 +6,9 @@ bin/
 obj/
 publish/
 
+# Local weather history database
+data/
+
 # IDE / tooling
 .vs/
 .vscode/

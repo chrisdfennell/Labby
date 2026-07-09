@@ -6,11 +6,11 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 
 | Page | What it shows |
 |---|---|
-| **Dashboard** (`/`) | Weather strip, NAS quick stats, and tiles for every configured service with live up/down status and latency (polled every 30s) |
+| **Dashboard** (`/`) | Weather strip, NAS quick stats, and tiles for every configured service with live up/down status, latency, a one-hour latency sparkline, uptime %, and how long the service has been up/down (polled every 30s) |
 | **Storage** (`/storage`) | NAS model/firmware/uptime, CPU/RAM, temperatures, volume usage bars, and per-disk SMART health |
 | **Files** (`/files`) | Browse QNAP shares and folders, download files through the app |
 | **Containers** (`/containers`) | Embedded [Kontainr](https://github.com/chrisdfennell/Kontainr) dashboard (full Docker management), with the QNAP Container Station start/stop table as a second tab |
-| **Weather** (`/weather`) | Full weather station readout, auto-refreshing every 60s |
+| **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, plus 24h/48h/7d history charts (temperature, wind, humidity, barometer) logged to a small SQLite file every 5 minutes |
 
 ## Setup
 
@@ -72,6 +72,35 @@ Each entry becomes a tile with a health check (any HTTP response below 500 count
 
 `HealthUrl` is optional — use it when the probe should hit a different URL than the one the tile opens.
 
+### 5. Alerts (optional)
+
+Set a webhook and Labby posts a message whenever a dashboard service goes down or comes back:
+
+```jsonc
+"Alerts": {
+  "WebhookUrl": ""   // e.g. https://ntfy.sh/my-homelab
+}
+```
+
+Discord (`discord.com/api/webhooks/…`) and Slack (`hooks.slack.com/…`) URLs get their native JSON payloads; any other URL — an [ntfy](https://ntfy.sh) topic, a generic webhook — receives the message as a plain-text POST. With Docker, set `LABBY_ALERT_WEBHOOK` in `.env`. Alerts fire on state *changes* only (🔴 down with the error, 🟢 recovery with how long it was out).
+
+Weather history lands in `data/labby.db` (override with `History:DatabasePath`); the compose files mount a `labby-data` volume so it survives rebuilds.
+
+### 6. Login (optional)
+
+Labby ships with a simple cookie login that is **off by default**. Set a password to turn it on:
+
+```jsonc
+"Auth": {
+  "Username": "labby",   // default
+  "Password": ""          // empty = no login screen
+}
+```
+
+With Docker, set `LABBY_AUTH_USERNAME` / `LABBY_AUTH_PASSWORD` in `.env`. Once enabled, every page (and file downloads) requires signing in; the session cookie lasts 30 days and a logout button appears in the nav. `/healthz` stays open for health checks.
+
+Labby can browse your NAS and stop containers, so even with the login enabled it's best kept on your LAN — the login protects against curious housemates, not the open internet (no HTTPS, no rate limiting).
+
 ## Run
 
 ### Locally
@@ -117,4 +146,8 @@ Labby is then at `http://<nas-ip>:5123`. Notes:
 - Kontainr mounts the NAS's Docker socket, so it manages Container Station's own containers — no remote-host setup needed.
 - To update: rebuild + re-save the tar on the PC, `docker load` again, then `docker compose -f docker-compose.nas.yml up -d`.
 
-> ⚠️ There is no login on Labby itself yet — it can browse your NAS and stop containers, so keep it on your LAN (don't port-forward it) until auth is added.
+## Health checks
+
+`GET /healthz` returns `200 ok` without authentication, and the Docker image has a built-in `HEALTHCHECK` against it — `docker ps` shows the container as `healthy`/`unhealthy`, and you can point Uptime Kuma (or a Labby dashboard tile on another instance) at it.
+
+> ⚠️ Labby can browse your NAS and stop containers. Enable the login (section 6) and keep it on your LAN — don't port-forward it.

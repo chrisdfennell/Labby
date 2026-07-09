@@ -1,0 +1,38 @@
+.login-card {
+    width: 100%;
+    max-width: 22rem;
+}
+
+.login-brand {
+    font-family: var(--lab-mono);
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+::deep .brand-prompt {
+    color: var(--lab-accent);
+    margin-right: 0.3rem;
+}
+
+::deep .brand-cursor {
+    color: var(--lab-accent);
+    animation: login-blink 1.1s steps(1) infinite;
+}
+
+@keyframes login-blink {
+    50% { opacity: 0; }
+}
+
+::deep .form-control {
+    background: var(--lab-panel-deep);
+    border-color: var(--lab-border);
+    color: var(--lab-text);
+    font-family: var(--lab-mono);
+}
+
+    ::deep .form-control:focus {
+        background: var(--lab-panel-deep);
+        border-color: var(--lab-accent);
+        color: var(--lab-text);
+    }

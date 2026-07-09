@@ -108,6 +108,149 @@ code {
         box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--lab-accent-dim);
     }
 
+.service-tile-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 1rem;
+    background: transparent;
+    border-top: 1px solid var(--lab-border);
+    font-family: var(--lab-mono);
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+.sparkline {
+    flex: 1;
+    min-width: 3rem;
+    height: 1.3rem;
+    opacity: 0.9;
+}
+
+.spark-up {
+    fill: var(--lab-accent);
+}
+
+.spark-down {
+    fill: var(--lab-red);
+}
+
+.state-up {
+    color: var(--lab-accent);
+}
+
+.state-down {
+    color: var(--lab-red);
+}
+
+/* ── Charts ──────────────────────────────────────────────────────────── */
+.lab-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    touch-action: none;
+}
+
+.chart-grid {
+    stroke: #16202c; /* one step off the panel surface */
+    stroke-width: 1;
+}
+
+.chart-tick {
+    font-family: var(--lab-mono);
+    font-size: 10px;
+    fill: var(--lab-muted);
+}
+
+.chart-endlabel {
+    font-family: var(--lab-mono);
+    font-size: 11px;
+    fill: var(--lab-text);
+}
+
+.chart-dot, .chart-cursor-dot {
+    stroke: var(--lab-panel); /* 2px surface ring keeps dots legible on the line */
+    stroke-width: 2;
+}
+
+.chart-cursor {
+    stroke: #2e4152;
+    stroke-width: 1;
+    opacity: 0;
+}
+
+.chart-cursor-dot {
+    opacity: 0;
+}
+
+.chart-legend {
+    display: flex;
+    gap: 0.8rem;
+    text-transform: none;
+    letter-spacing: normal;
+    font-size: 0.74rem;
+}
+
+.chart-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--lab-muted);
+}
+
+.chart-key-line {
+    display: inline-block;
+    width: 14px;
+    height: 2px;
+    border-radius: 1px;
+}
+
+.chart-tooltip {
+    display: none;
+    position: fixed;
+    z-index: 100;
+    pointer-events: none;
+    background: var(--lab-panel-deep);
+    border: 1px solid var(--lab-border);
+    border-radius: 0.5rem;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    padding: 0.45rem 0.65rem;
+    font-family: var(--lab-mono);
+    font-size: 0.78rem;
+    color: var(--lab-text);
+}
+
+.chart-tooltip-time {
+    color: var(--lab-muted);
+    font-size: 0.7rem;
+    margin-bottom: 0.2rem;
+}
+
+.chart-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.chart-tooltip-row strong {
+    font-weight: 600;
+}
+
+.chart-tooltip-label {
+    color: var(--lab-muted);
+}
+
+.chart-range {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.chart-range .btn {
+    font-family: var(--lab-mono);
+    font-size: 0.78rem;
+    padding: 0.15rem 0.7rem;
+}
+
 /* ── Status dots ─────────────────────────────────────────────────────── */
 .status-dot {
     display: inline-block;

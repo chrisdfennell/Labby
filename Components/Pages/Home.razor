@@ -1,4 +1,5 @@
 @page "/"
+@using System.Text
 @rendermode InteractiveServer
 @inject ServiceHealthMonitor Health
 @inject AmbientWeatherClient Weather
@@ -94,6 +95,20 @@
                             }
                         </div>
                     </div>
+                    @if (s.History.Count > 0)
+                    {
+                        <div class="card-footer service-tile-footer">
+                            <svg class="sparkline" viewBox="0 0 120 24" preserveAspectRatio="none" role="img"
+                                 aria-label="Latency over the last hour"><title>Latency, last hour</title>@RenderSparkline(s.History)</svg>
+                            <span class="text-muted">@(s.UptimePercent?.ToString("0.#"))% up</span>
+                            @if (s.StateSince is { } since)
+                            {
+                                <span class="@(s.IsUp == true ? "state-up" : "state-down")">
+                                    @(s.IsUp == true ? "up" : "down") @Format.ShortDuration(DateTimeOffset.Now - since)
+                                </span>
+                            }
+                        </div>
+                    }
                 </div>
             </a>
         </div>
@@ -156,6 +171,23 @@
     {
         _services = Health.Snapshot;
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    // One 1-unit-wide bar per probe, newest at the right edge. Up = green, height scaled
+    // to the slowest recent response; down = full-height red. Invariant formatting keeps
+    // SVG coordinates valid regardless of server culture.
+    private static MarkupString RenderSparkline(IReadOnlyList<ProbeSample> history)
+    {
+        var max = Math.Max(1, history.Max(p => p.LatencyMs ?? 0));
+        var sb = new StringBuilder();
+        for (var i = 0; i < history.Count; i++)
+        {
+            var p = history[i];
+            var h = p.Up ? Math.Max(2.0, p.LatencyMs.GetValueOrDefault() * 20.0 / max) : 24.0;
+            sb.Append(FormattableString.Invariant(
+                $"""<rect x="{120 - (history.Count - i)}" y="{24 - h:0.##}" width="1" height="{h:0.##}" class="{(p.Up ? "spark-up" : "spark-down")}"/>"""));
+        }
+        return new MarkupString(sb.ToString());
     }
 
     public void Dispose() => Health.Changed -= OnHealthChanged;

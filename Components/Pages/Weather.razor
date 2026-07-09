@@ -1,6 +1,7 @@
 @page "/weather"
 @rendermode InteractiveServer
 @inject AmbientWeatherClient WeatherClient
+@inject WeatherHistoryService History
 @implements IDisposable
 
 <PageTitle>Labby — Weather</PageTitle>
@@ -22,33 +23,120 @@
         and set <code>AmbientWeather:ApiKey</code> and <code>AmbientWeather:ApplicationKey</code>.
     </div>
 }
-else if (_reading is null)
-{
-    <p class="text-muted">@(_error ?? "Loading…")</p>
-}
 else
 {
-    <div class="row g-3">
-        @foreach (var (label, value) in Readings())
-        {
-            <div class="col-6 col-md-4 col-xl-3">
-                <div class="card h-100">
-                    <div class="card-body text-center">
-                        <div class="text-muted small">@label</div>
-                        <div class="fs-4 fw-semibold">@value</div>
+    @* Live readout — history below renders regardless, so a flaky API never hides logged data. *@
+    @if (_reading is null)
+    {
+        <p class="text-muted">@(_error ?? "Loading…")</p>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var (label, value) in Readings())
+            {
+                <div class="col-6 col-md-4 col-xl-3">
+                    <div class="card h-100">
+                        <div class="card-body text-center">
+                            <div class="text-muted small">@label</div>
+                            <div class="fs-4 fw-semibold">@value</div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        }
+            }
+        </div>
+    }
+
+    <div class="d-flex align-items-center justify-content-between mt-4 mb-3">
+        <h4 class="mb-0">History</h4>
+        <div class="chart-range" role="group" aria-label="Time range">
+            @foreach (var (hours, label) in Ranges)
+            {
+                <button class="btn btn-outline-primary @(_rangeHours == hours ? "active" : "")"
+                        @onclick="() => SetRangeAsync(hours)">@label</button>
+            }
+        </div>
     </div>
+
+    @if (_history.Count < 2)
+    {
+        <div class="alert alert-secondary">
+            Not enough history yet — Labby logs a reading every 5 minutes while it runs, so charts appear after ~10 minutes.
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <LineChart Title="🌡️ Temperature (°F)" Unit="°F" WideRange="_rangeHours > 48"
+                           Times="_times" Series="_tempSeries" />
+            </div>
+            <div class="col-lg-6">
+                <LineChart Title="💨 Wind (mph)" Unit=" mph" WideRange="_rangeHours > 48"
+                           Times="_times" Series="_windSeries" />
+            </div>
+            <div class="col-lg-6">
+                <LineChart Title="💧 Humidity (%)" Unit="%" TickFormat="0" WideRange="_rangeHours > 48"
+                           Times="_times" Series="_humiditySeries" />
+            </div>
+            <div class="col-lg-6">
+                <LineChart Title="🧭 Barometer (inHg)" Unit=" inHg" ValueFormat="0.00" TickFormat="0.00" WideRange="_rangeHours > 48"
+                           Times="_times" Series="_pressureSeries" />
+            </div>
+        </div>
+
+        <details class="mt-3">
+            <summary class="text-muted small">Data table (@_history.Count readings)</summary>
+            <div class="table-responsive mt-2" style="max-height: 24rem; overflow-y: auto;">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr><th>Time</th><th>Temp</th><th>Feels like</th><th>Humidity</th><th>Barometer</th><th>Wind</th><th>Gust</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in _history)
+                        {
+                            <tr>
+                                <td>@p.At.ToString(_rangeHours > 48 ? "ddd HH:mm" : "HH:mm")</td>
+                                <td>@(p.TempF?.ToString("0.#") ?? "—")</td>
+                                <td>@(p.FeelsLikeF?.ToString("0.#") ?? "—")</td>
+                                <td>@(p.HumidityPercent?.ToString("0") ?? "—")</td>
+                                <td>@(p.BarometerInHg?.ToString("0.00") ?? "—")</td>
+                                <td>@(p.WindSpeedMph?.ToString("0.#") ?? "—")</td>
+                                <td>@(p.WindGustMph?.ToString("0.#") ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    }
 }
 
 @code {
+    private static readonly (int Hours, string Label)[] Ranges = [(24, "24h"), (48, "48h"), (168, "7d")];
+    private const int MaxChartPoints = 360;
+
     private WeatherReading? _reading;
     private string? _error;
     private Timer? _refreshTimer;
+    private int _rangeHours = 24;
 
-    // Runs after first render so prerendering never blocks on the weather API.
+    private IReadOnlyList<WeatherPoint> _history = [];
+    private IReadOnlyList<DateTimeOffset> _times = [];
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _tempSeries = [];
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _windSeries = [];
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _humiditySeries = [];
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _pressureSeries = [];
+
+    // History is a local SQLite read, so it can safely load during prerender and the
+    // charts arrive with the first HTML. The live reading (external API) still waits
+    // for the first interactive render so prerendering never blocks on it.
+    protected override async Task OnInitializedAsync()
+    {
+        if (WeatherClient.IsConfigured)
+            await LoadHistoryAsync();
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
@@ -69,6 +157,64 @@ else
         _reading = await WeatherClient.GetCurrentAsync();
         if (_reading is null)
             _error = "No data returned from Ambient Weather — check your keys.";
+        await LoadHistoryAsync();
+    }
+
+    private async Task SetRangeAsync(int hours)
+    {
+        _rangeHours = hours;
+        await LoadHistoryAsync();
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        _history = await History.GetSinceAsync(DateTimeOffset.Now.AddHours(-_rangeHours));
+        var chartPoints = Downsample(_history);
+        _times = chartPoints.Select(p => p.At).ToList();
+        _tempSeries =
+        [
+            ("Temp", chartPoints.Select(p => p.TempF).ToList()),
+            ("Feels like", chartPoints.Select(p => p.FeelsLikeF).ToList()),
+        ];
+        _windSeries =
+        [
+            ("Wind", chartPoints.Select(p => p.WindSpeedMph).ToList()),
+            ("Gust", chartPoints.Select(p => p.WindGustMph).ToList()),
+        ];
+        _humiditySeries = [("Humidity", chartPoints.Select(p => p.HumidityPercent).ToList())];
+        _pressureSeries = [("Barometer", chartPoints.Select(p => p.BarometerInHg).ToList())];
+    }
+
+    // Multi-day ranges hold thousands of samples; average them into buckets so the
+    // SVG stays light without visibly changing the shape of the line.
+    private static IReadOnlyList<WeatherPoint> Downsample(IReadOnlyList<WeatherPoint> points)
+    {
+        if (points.Count <= MaxChartPoints)
+            return points;
+        var bucketSize = (int)Math.Ceiling(points.Count / (double)MaxChartPoints);
+        var result = new List<WeatherPoint>(MaxChartPoints);
+        for (var i = 0; i < points.Count; i += bucketSize)
+        {
+            var bucket = points.Skip(i).Take(bucketSize).ToList();
+            result.Add(new WeatherPoint
+            {
+                At = bucket[bucket.Count / 2].At,
+                TempF = Avg(bucket, p => p.TempF),
+                FeelsLikeF = Avg(bucket, p => p.FeelsLikeF),
+                HumidityPercent = Avg(bucket, p => p.HumidityPercent),
+                BarometerInHg = Avg(bucket, p => p.BarometerInHg),
+                WindSpeedMph = Avg(bucket, p => p.WindSpeedMph),
+                WindGustMph = Avg(bucket, p => p.WindGustMph),
+                DailyRainIn = Avg(bucket, p => p.DailyRainIn),
+            });
+        }
+        return result;
+    }
+
+    private static double? Avg(List<WeatherPoint> bucket, Func<WeatherPoint, double?> selector)
+    {
+        var values = bucket.Select(selector).OfType<double>().ToList();
+        return values.Count > 0 ? values.Average() : null;
     }
 
     private IEnumerable<(string Label, string Value)> Readings()

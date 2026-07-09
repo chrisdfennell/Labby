@@ -43,6 +43,38 @@ public sealed class KontainrOptions
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
 }
 
+public sealed class HistoryOptions
+{
+    public const string SectionName = "History";
+
+    /// <summary>SQLite file for logged weather readings. Relative paths resolve against the content root.</summary>
+    public string DatabasePath { get; set; } = "data/labby.db";
+}
+
+public sealed class AlertOptions
+{
+    public const string SectionName = "Alerts";
+
+    /// <summary>
+    /// Webhook that receives service down/recovery messages. Discord and Slack URLs get
+    /// their JSON shape; anything else (e.g. an ntfy topic URL) gets a plain-text POST.
+    /// </summary>
+    public string WebhookUrl { get; set; } = "";
+
+    public bool IsEnabled => !string.IsNullOrWhiteSpace(WebhookUrl);
+}
+
+public sealed class AuthOptions
+{
+    public const string SectionName = "Auth";
+
+    public string Username { get; set; } = "labby";
+    public string Password { get; set; } = "";
+
+    /// <summary>Login is only enforced when a password is set; with none Labby stays open (trusted LAN).</summary>
+    public bool IsEnabled => !string.IsNullOrWhiteSpace(Password);
+}
+
 public sealed class DashboardOptions
 {
     public const string SectionName = "Dashboard";

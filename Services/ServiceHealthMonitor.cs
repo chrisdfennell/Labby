@@ -11,13 +11,17 @@ namespace Labby.Services;
 /// Pages read <see cref="Snapshot"/> and subscribe to <see cref="Changed"/> for
 /// live tile updates.
 /// </summary>
-public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOptions<DashboardOptions> options, ILogger<ServiceHealthMonitor> logger)
+public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOptions<DashboardOptions> options, AlertNotifier alerts, ILogger<ServiceHealthMonitor> logger)
     : BackgroundService
 {
     public const string HttpClientName = "health-probe";
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
 
+    /// <summary>~1 hour of samples at the 30s poll cadence.</summary>
+    private const int HistoryLength = 120;
+
     private readonly ConcurrentDictionary<string, ServiceStatus> _statuses = new();
+    private readonly ConcurrentDictionary<string, List<ProbeSample>> _history = new();
 
     public event Action? Changed;
 
@@ -79,6 +83,21 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
             error = ex is TaskCanceledException ? "Timed out" : ex.GetBaseException().Message;
         }
 
+        var now = DateTimeOffset.Now;
+        var latency = up ? stopwatch.ElapsedMilliseconds : (long?)null;
+
+        // Only this poller writes the list, but pages read snapshots concurrently.
+        var history = _history.GetOrAdd(service.Name, _ => new List<ProbeSample>(HistoryLength));
+        ProbeSample[] samples;
+        lock (history)
+        {
+            history.Add(new ProbeSample(now, up, latency));
+            if (history.Count > HistoryLength)
+                history.RemoveAt(0);
+            samples = [.. history];
+        }
+
+        _statuses.TryGetValue(service.Name, out var previous);
         _statuses[service.Name] = new ServiceStatus
         {
             Name = service.Name,
@@ -86,10 +105,22 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
             Icon = service.Icon,
             Description = service.Description,
             IsUp = up,
-            LatencyMs = up ? stopwatch.ElapsedMilliseconds : null,
-            CheckedAt = DateTimeOffset.Now,
+            LatencyMs = latency,
+            CheckedAt = now,
             Error = error,
+            History = samples,
+            UptimePercent = Math.Round(samples.Count(s => s.Up) * 100.0 / samples.Length, 1),
+            StateSince = previous?.IsUp == up ? previous.StateSince : now,
         };
+
+        // Alert on transitions only — the first-ever probe of a service stays quiet.
+        if (previous?.IsUp is { } wasUp && wasUp != up)
+        {
+            var message = up
+                ? $"🟢 {service.Name} is back UP ({latency}ms) after {Format.ShortDuration(now - (previous.StateSince ?? now))} down"
+                : $"🔴 {service.Name} is DOWN — {error ?? "no response"}";
+            await alerts.SendAsync(message, ct);
+        }
     }
 
     private static ServiceStatus ToPendingStatus(MonitoredService service) => new()
