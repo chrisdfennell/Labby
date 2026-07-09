@@ -164,11 +164,15 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
         long down = 0, up = 0;
         string? qbitError = null, nzbError = null;
 
-        if (_options.Qbittorrent.IsConfigured)
+        // Both clients concurrently — a hanging one costs its own timeout, not the sum.
+        var qbitTask = _options.Qbittorrent.IsConfigured ? FetchQbittorrentAsync(ct) : null;
+        var nzbTask = _options.Nzbget.IsConfigured ? FetchNzbgetAsync(ct) : null;
+
+        if (qbitTask is not null)
         {
             try
             {
-                var (qbitItems, qbitDown, qbitUp) = await FetchQbittorrentAsync(ct);
+                var (qbitItems, qbitDown, qbitUp) = await qbitTask;
                 items.AddRange(qbitItems);
                 down += qbitDown;
                 up += qbitUp;
@@ -180,11 +184,11 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             }
         }
 
-        if (_options.Nzbget.IsConfigured)
+        if (nzbTask is not null)
         {
             try
             {
-                var (nzbItems, nzbDown) = await FetchNzbgetAsync(ct);
+                var (nzbItems, nzbDown) = await nzbTask;
                 items.AddRange(nzbItems);
                 down += nzbDown;
             }
@@ -308,7 +312,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
         {
             var baseUrl = _options.Overseerr.Url.TrimEnd('/');
             using var doc = await GetJsonAsync($"{baseUrl}/api/v1/request?take=15&filter=pending&sort=added", ct, apiKey: _options.Overseerr.ApiKey);
-            var requests = new List<MediaRequest>();
+            var pending = new List<(string Type, long TmdbId, string By, DateTimeOffset At)>();
             foreach (var r in doc.RootElement.GetProperty("results").EnumerateArray())
             {
                 var type = Str(r, "type");
@@ -316,14 +320,16 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
                 var by = r.TryGetProperty("requestedBy", out var user)
                     ? (Str(user, "displayName") is { Length: > 0 } d ? d : Str(user, "plexUsername"))
                     : "";
-                requests.Add(new MediaRequest
-                {
-                    Title = await LookupTitleAsync(baseUrl, type, tmdbId, ct),
-                    Type = type,
-                    RequestedBy = by,
-                    At = Date(r, "createdAt") ?? DateTimeOffset.Now,
-                });
+                pending.Add((type, tmdbId, by, Date(r, "createdAt") ?? DateTimeOffset.Now));
             }
+            // Titles need one lookup each; do them concurrently (and cached after first sight).
+            var requests = await Task.WhenAll(pending.Select(async p => new MediaRequest
+            {
+                Title = await LookupTitleAsync(baseUrl, p.Type, p.TmdbId, ct),
+                Type = p.Type,
+                RequestedBy = p.By,
+                At = p.At,
+            }));
             return new RequestsSnapshot { Requests = requests };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

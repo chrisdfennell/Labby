@@ -240,22 +240,28 @@ else
     }
 
     // The hub caches per source (10s live / 5min calendars), so refreshing
-    // everything on one timer is cheap.
-    private async Task LoadAsync()
+    // everything on one timer is cheap. Each card renders the moment its own
+    // source answers — one slow service never blanks the rest of the page.
+    private Task LoadAsync()
     {
-        if (!Hub.AnyConfigured)
-            return;
-        var nowPlaying = Hub.TautulliConfigured ? Hub.GetNowPlayingAsync() : Task.FromResult<NowPlayingSnapshot>(null!);
-        var downloads = Hub.DownloadsConfigured ? Hub.GetDownloadsAsync() : Task.FromResult<DownloadsSnapshot>(null!);
-        var tv = Hub.SonarrConfigured ? Hub.GetUpcomingTvAsync() : Task.FromResult<UpcomingSnapshot>(null!);
-        var movies = Hub.RadarrConfigured ? Hub.GetUpcomingMoviesAsync() : Task.FromResult<UpcomingSnapshot>(null!);
-        var requests = Hub.OverseerrConfigured ? Hub.GetRequestsAsync() : Task.FromResult<RequestsSnapshot>(null!);
-        await Task.WhenAll(nowPlaying, downloads, tv, movies, requests);
-        _nowPlaying = nowPlaying.Result;
-        _downloads = downloads.Result;
-        _tv = tv.Result;
-        _movies = movies.Result;
-        _requests = requests.Result;
+        var tasks = new List<Task>();
+        if (Hub.TautulliConfigured)
+            tasks.Add(AssignAsync(Hub.GetNowPlayingAsync(), v => _nowPlaying = v));
+        if (Hub.DownloadsConfigured)
+            tasks.Add(AssignAsync(Hub.GetDownloadsAsync(), v => _downloads = v));
+        if (Hub.SonarrConfigured)
+            tasks.Add(AssignAsync(Hub.GetUpcomingTvAsync(), v => _tv = v));
+        if (Hub.RadarrConfigured)
+            tasks.Add(AssignAsync(Hub.GetUpcomingMoviesAsync(), v => _movies = v));
+        if (Hub.OverseerrConfigured)
+            tasks.Add(AssignAsync(Hub.GetRequestsAsync(), v => _requests = v));
+        return Task.WhenAll(tasks);
+    }
+
+    private async Task AssignAsync<T>(Task<T> fetch, Action<T> setter)
+    {
+        setter(await fetch);
+        await InvokeAsync(StateHasChanged);
     }
 
     private static string UpcomingDate(DateTimeOffset at) =>
