@@ -95,13 +95,21 @@ public sealed class AlertOptions
     /// </summary>
     public string WebhookUrl { get; set; } = "";
 
+    /// <summary>Pushover application token — set together with <see cref="PushoverUser"/> for push notifications.</summary>
+    public string PushoverToken { get; set; } = "";
+
+    /// <summary>Pushover user (or group) key.</summary>
+    public string PushoverUser { get; set; } = "";
+
     /// <summary>NAS health alert when a volume passes this used-% (0 disables).</summary>
     public double VolumeFullPercent { get; set; } = 90;
 
     /// <summary>NAS health alert when the CPU passes this temperature (0 disables).</summary>
     public double CpuTempC { get; set; } = 85;
 
-    public bool IsEnabled => !string.IsNullOrWhiteSpace(WebhookUrl);
+    public bool PushoverEnabled => !string.IsNullOrWhiteSpace(PushoverToken) && !string.IsNullOrWhiteSpace(PushoverUser);
+
+    public bool IsEnabled => !string.IsNullOrWhiteSpace(WebhookUrl) || PushoverEnabled;
 }
 
 public sealed class AuthOptions

@@ -94,15 +94,17 @@ With Docker, use the `TAUTULLI_*` / `SONARR_*` / `RADARR_*` / `OVERSEERR_*` / `Q
 
 ### 6. Alerts (optional)
 
-Set a webhook and Labby posts a message whenever a dashboard service goes down or comes back:
+Labby posts a message whenever a dashboard service goes down or comes back. Two channels, use either or both:
 
 ```jsonc
 "Alerts": {
-  "WebhookUrl": ""   // e.g. https://ntfy.sh/my-homelab
+  "WebhookUrl": "",      // e.g. https://ntfy.sh/my-homelab, Discord, or Slack
+  "PushoverToken": "",   // Pushover application token (pushover.net/apps/build)
+  "PushoverUser": ""     // your Pushover user key
 }
 ```
 
-Discord (`discord.com/api/webhooks/…`) and Slack (`hooks.slack.com/…`) URLs get their native JSON payloads; any other URL — an [ntfy](https://ntfy.sh) topic, a generic webhook — receives the message as a plain-text POST. With Docker, set `LABBY_ALERT_WEBHOOK` in `.env`. Alerts fire on state *changes* only (🔴 down with the error, 🟢 recovery with how long it was out).
+Discord (`discord.com/api/webhooks/…`) and Slack (`hooks.slack.com/…`) URLs get their native JSON payloads; any other URL — an [ntfy](https://ntfy.sh) topic, a generic webhook — receives the message as a plain-text POST. For [Pushover](https://pushover.net), create an application (any name/icon) to get the token, grab your user key from the dashboard, and set both — alerts arrive as push notifications titled "Labby". With Docker: `LABBY_ALERT_WEBHOOK`, `LABBY_PUSHOVER_TOKEN`, `LABBY_PUSHOVER_USER` in `.env`. Alerts fire on state *changes* only (🔴 down with the error, 🟢 recovery with how long it was out).
 
 With a webhook set and QNAP configured, Labby also checks **NAS health** every 15 minutes and alerts once when a condition appears and once when it clears: a disk's SMART health leaving "Good", a volume passing `Alerts:VolumeFullPercent` (default 90), or the CPU passing `Alerts:CpuTempC` (default 85°C; set either to 0 to disable).
 

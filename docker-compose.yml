@@ -29,6 +29,9 @@ services:
       Auth__Password: ${LABBY_AUTH_PASSWORD:-}
       # Webhook (ntfy topic URL, Discord, or Slack) for service down/recovery alerts.
       Alerts__WebhookUrl: ${LABBY_ALERT_WEBHOOK:-}
+      # Pushover push notifications (set both to enable; works alongside the webhook).
+      Alerts__PushoverToken: ${LABBY_PUSHOVER_TOKEN:-}
+      Alerts__PushoverUser: ${LABBY_PUSHOVER_USER:-}
       Qnap__Host: ${QNAP_HOST:-}
       Qnap__Port: ${QNAP_PORT:-8080}
       Qnap__UseHttps: ${QNAP_USE_HTTPS:-false}
