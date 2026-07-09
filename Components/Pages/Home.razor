@@ -6,6 +6,7 @@
 @inject QnapClient Qnap
 @inject MediaHub Media
 @inject WakeOnLanService Wol
+@inject MinerClient Miners
 @implements IDisposable
 
 <PageTitle>Labby — Dashboard</PageTitle>
@@ -154,6 +155,53 @@
     }
 </div>
 
+@if (Miners.AnyConfigured)
+{
+    <h4 class="mb-3 mt-4">⛏️ Miners</h4>
+    <div class="row g-3">
+        @foreach (var m in _miners)
+        {
+            <div class="col-sm-6 col-lg-4 col-xxl-3">
+                <div class="card h-100">
+                    <a href="@m.Url" target="_blank" rel="noreferrer" class="text-decoration-none service-tile-link">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-baseline gap-2">
+                                <span class="fw-semibold">@m.Name</span>
+                                @if (m.Error is not null)
+                                {
+                                    <span class="status-dot down" title="@m.Error"></span>
+                                }
+                                else
+                                {
+                                    <span class="miner-hashrate">@m.HashRateDisplay</span>
+                                }
+                            </div>
+                            @if (m.Error is not null)
+                            {
+                                <div class="text-danger small">@m.Error</div>
+                            }
+                            else
+                            {
+                                <div class="text-muted small">@m.Host · @m.Pool</div>
+                                <div class="miner-stats">
+                                    <span title="Shares accepted / rejected">✔ @m.Accepted<span class="text-muted">/@m.Rejected</span></span>
+                                    <span title="Best difficulty this session / ever">🏆 @(m.BestDiffSession ?? "—") <span class="text-muted">/ @(m.BestDiffEver ?? "—")</span></span>
+                                    <span title="Uptime">⏱ @Format.Uptime(m.Uptime)</span>
+                                    <span title="Wi-Fi signal">📶 @(m.RssiDbm?.ToString("0") ?? "—") dBm</span>
+                                </div>
+                            }
+                        </div>
+                    </a>
+                </div>
+            </div>
+        }
+        @if (_miners.Count == 0)
+        {
+            <div class="col-12"><span class="text-muted">Loading…</span></div>
+        }
+    </div>
+}
+
 @code {
     private IReadOnlyList<ServiceStatus> _services = [];
     private WeatherReading? _weather;
@@ -163,6 +211,7 @@
     private int? _streams;
     private long? _downloads;
     private int? _pendingRequests;
+    private IReadOnlyList<MinerStatus> _miners = [];
     private readonly HashSet<string> _woken = [];
     private Timer? _refreshTimer;
 
@@ -187,7 +236,13 @@
     }
 
     // Cards load independently so one failing doesn't blank the others.
-    private Task LoadCardsAsync() => Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync());
+    private Task LoadCardsAsync() => Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync());
+
+    private async Task LoadMinersAsync()
+    {
+        if (Miners.AnyConfigured)
+            _miners = await Miners.GetStatusAsync();
+    }
 
     private async Task LoadMediaAsync()
     {

@@ -40,6 +40,16 @@ Seed synthetic data with python stdlib (schema: `weather(observed_at INTEGER PRI
 - Hover/tooltip/range buttons: `npm install playwright` (no browser download needed) + `chromium.launch({ executablePath: <chrome.exe> })`, then mouse.move over `.lab-chart` and read `.chart-tooltip` text.
 - Alert webhook: run a python `http.server` handler logging POST bodies, set `Alerts__WebhookUrl` to it, point `Dashboard__Services__0__Url` at a second local listener, kill/restart that listener and watch for the 🔴/🟢 POSTs (30s poll cadence, transitions only).
 
+## QTS File Station gotcha
+
+The upload CGI (`utilRequest.cgi?func=upload`) reports `{"status":1}` success while
+writing NOTHING if the multipart body isn't shaped exactly like a browser's: it needs
+a Content-Length (no chunked), quoted `name="file"; filename="..."` with NO RFC 5987
+`filename*`, and Content-Disposition as the part's first header. .NET's
+MultipartFormDataContent violates all three — Labby hand-builds the envelope
+(see QnapFileStation.UploadAsync). Always verify uploads by re-listing the folder,
+never by the status code.
+
 ## Worth checking after auth-adjacent changes
 
 - `/healthz` → 200 "ok" with no cookie (must stay anonymous).

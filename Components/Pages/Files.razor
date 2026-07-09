@@ -43,6 +43,32 @@ else
         </ol>
     </nav>
 
+    @if (_segments.Count > 0)
+    {
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3 files-toolbar">
+            <label class="btn btn-sm btn-outline-primary mb-0 @(_uploading ? "disabled" : "")">
+                @(_uploading ? $"⏳ uploading {_uploadName}…" : "⬆️ Upload file")
+                <InputFile OnChange="UploadAsync" disabled="@_uploading" hidden />
+            </label>
+            @if (_creatingFolder)
+            {
+                <input class="form-control form-control-sm files-newfolder" placeholder="folder name"
+                       @bind="_newFolderName" @bind:event="oninput" />
+                <button class="btn btn-sm btn-outline-primary" @onclick="CreateFolderAsync"
+                        disabled="@(string.IsNullOrWhiteSpace(_newFolderName))">create</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _creatingFolder = false">cancel</button>
+            }
+            else
+            {
+                <button class="btn btn-sm btn-outline-primary" @onclick="() => _creatingFolder = true">📁 New folder</button>
+            }
+            @if (_actionError is not null)
+            {
+                <span class="text-danger small">✗ @_actionError</span>
+            }
+        </div>
+    }
+
     @if (_error is not null)
     {
         <div class="alert alert-danger">@_error</div>
@@ -95,12 +121,58 @@ else
 }
 
 @code {
+    // Blazor's SignalR file streaming handles this fine; QTS is the ceiling.
+    private const long MaxUploadBytes = 2L * 1024 * 1024 * 1024;
+
     private readonly List<string> _segments = [];
     private IReadOnlyList<FileEntry> _entries = [];
     private bool _loading = true;
     private string? _error;
+    private bool _uploading;
+    private string? _uploadName;
+    private bool _creatingFolder;
+    private string _newFolderName = "";
+    private string? _actionError;
 
     private string CurrentPath => "/" + string.Join('/', _segments);
+
+    private async Task UploadAsync(InputFileChangeEventArgs e)
+    {
+        _actionError = null;
+        _uploading = true;
+        _uploadName = e.File.Name;
+        try
+        {
+            await using var stream = e.File.OpenReadStream(MaxUploadBytes);
+            await FileStation.UploadAsync(CurrentPath, e.File.Name, stream);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _uploading = false;
+            _uploadName = null;
+        }
+    }
+
+    private async Task CreateFolderAsync()
+    {
+        _actionError = null;
+        try
+        {
+            await FileStation.CreateFolderAsync(CurrentPath, _newFolderName.Trim());
+            _creatingFolder = false;
+            _newFolderName = "";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = ex.GetBaseException().Message;
+        }
+    }
 
     // Runs after first render so prerendering never blocks on a slow/unreachable NAS.
     protected override async Task OnAfterRenderAsync(bool firstRender)

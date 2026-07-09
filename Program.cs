@@ -52,6 +52,16 @@ builder.Services.AddHttpClient(QnapClient.HttpClientName, (sp, client) =>
     })
     .ConfigurePrimaryHttpMessageHandler(sp => CreateQnapHandler(sp, useCookies: false));
 
+// Uploads share the QNAP config but need a generous timeout for big files.
+builder.Services.AddHttpClient(QnapFileStation.UploadHttpClientName, (sp, client) =>
+    {
+        var qnap = sp.GetRequiredService<IOptions<QnapOptions>>().Value;
+        if (qnap.IsConfigured)
+            client.BaseAddress = new Uri(qnap.BaseUrl);
+        client.Timeout = TimeSpan.FromMinutes(30);
+    })
+    .ConfigurePrimaryHttpMessageHandler(sp => CreateQnapHandler(sp, useCookies: false));
+
 builder.Services.AddHttpClient(ContainerStationClient.HttpClientName, (sp, client) =>
     {
         var qnap = sp.GetRequiredService<IOptions<QnapOptions>>().Value;
@@ -70,6 +80,8 @@ builder.Services.AddHttpClient(AmbientWeatherClient.HttpClientName, client =>
 builder.Services.AddHttpClient(AlertNotifier.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
 
 builder.Services.AddHttpClient(MediaHub.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
+
+builder.Services.AddHttpClient(MinerClient.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(8));
 
 builder.Services.AddHttpClient(ServiceHealthMonitor.HttpClientName)
     .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(10))
@@ -91,6 +103,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ServiceHealthMonit
 builder.Services.AddSingleton<WeatherHistoryService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WeatherHistoryService>());
 builder.Services.AddSingleton<WakeOnLanService>();
+builder.Services.AddSingleton<MinerClient>();
 builder.Services.AddHostedService<NasHealthMonitor>();
 
 var app = builder.Build();

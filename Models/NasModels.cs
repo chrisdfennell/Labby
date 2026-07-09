@@ -99,6 +99,31 @@ public sealed record WeatherReading
             [(int)Math.Round(((d % 360) + 360) % 360 / 22.5) % 16];
 }
 
+/// <summary>Live stats from an NMMiner-style device.</summary>
+public sealed record MinerStatus
+{
+    public required string Name { get; init; }
+    public required string Url { get; init; }
+    public string? Host { get; init; }
+    /// <summary>Reported in MH/s by the device.</summary>
+    public double? HashRateMhs { get; init; }
+    public long Accepted { get; init; }
+    public long Rejected { get; init; }
+    public string? BestDiffSession { get; init; }
+    public string? BestDiffEver { get; init; }
+    public TimeSpan? Uptime { get; init; }
+    public double? RssiDbm { get; init; }
+    public string? Pool { get; init; }
+    public string? Error { get; init; }
+
+    public string HashRateDisplay =>
+        HashRateMhs is not { } mhs ? "—"
+        : mhs >= 1000 ? $"{mhs / 1000:0.##} GH/s"
+        : mhs >= 1 ? $"{mhs:0.##} MH/s"
+        : mhs >= 0.001 ? $"{mhs * 1000:0.##} KH/s"
+        : $"{mhs * 1_000_000:0} H/s";
+}
+
 /// <summary>One logged weather sample, as stored in the history database.</summary>
 public sealed record WeatherPoint
 {

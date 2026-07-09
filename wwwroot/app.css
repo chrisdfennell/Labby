@@ -122,6 +122,30 @@ code {
     display: block;
 }
 
+.files-toolbar .files-newfolder {
+    width: 12rem;
+    background: var(--lab-panel-deep);
+    border-color: var(--lab-border);
+    color: var(--lab-text);
+    font-family: var(--lab-mono);
+}
+
+.miner-hashrate {
+    font-family: var(--lab-mono);
+    color: var(--lab-accent);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.miner-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.9rem;
+    margin-top: 0.4rem;
+    font-family: var(--lab-mono);
+    font-size: 0.76rem;
+}
+
 .wake-btn {
     margin-left: auto;
     background: none;

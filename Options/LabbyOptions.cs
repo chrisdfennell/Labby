@@ -128,6 +128,16 @@ public sealed class DashboardOptions
     public const string SectionName = "Dashboard";
 
     public List<MonitoredService> Services { get; set; } = [];
+
+    /// <summary>NMMiner-style devices shown in the dashboard's Miners section.</summary>
+    public List<MinerEndpoint> Miners { get; set; } = [];
+}
+
+public sealed class MinerEndpoint
+{
+    public string Name { get; set; } = "";
+    /// <summary>Base URL of the miner's web UI, e.g. "http://192.168.1.34".</summary>
+    public string Url { get; set; } = "";
 }
 
 public sealed class MonitoredService

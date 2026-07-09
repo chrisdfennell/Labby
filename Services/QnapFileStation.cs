@@ -9,6 +9,8 @@ namespace Labby.Services;
 /// </summary>
 public sealed class QnapFileStation(IHttpClientFactory httpFactory, QnapClient qnap)
 {
+    public const string UploadHttpClientName = "qnap-upload";
+
     public bool IsConfigured => qnap.IsConfigured;
 
     /// <summary>Lists the top-level shared folders.</summary>
@@ -71,6 +73,81 @@ public sealed class QnapFileStation(IHttpClientFactory httpFactory, QnapClient q
         var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
         return response;
+    }
+
+    /// <summary>Uploads a file into <paramref name="folderPath"/>, overwriting an existing one of the same name.</summary>
+    public async Task UploadAsync(string folderPath, string fileName, Stream content, CancellationToken ct = default)
+    {
+        var sid = await qnap.GetSidAsync(ct);
+        var url = $"cgi-bin/filemanager/utilRequest.cgi?func=upload&type=standard&overwrite=1" +
+                  $"&dest_path={Uri.EscapeDataString(folderPath)}&progress={Uri.EscapeDataString(fileName)}&sid={sid}";
+
+        // QTS's CGI multipart parser is fussy: it needs a Content-Length (no chunked
+        // encoding, so no non-seekable browser streams), quoted disposition values
+        // without RFC 5987 filename*, and Content-Disposition as the part's first
+        // header — .NET's MultipartFormDataContent violates all three, and QTS then
+        // reports success while writing nothing. So spool the whole request body,
+        // envelope included, to a temp file and send it verbatim.
+        var boundary = "----labby" + Guid.NewGuid().ToString("N");
+        var safeName = fileName.Replace("\"", "_");
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            await using (var spool = File.Create(tempPath))
+            {
+                var prologue = System.Text.Encoding.UTF8.GetBytes(
+                    $"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{safeName}\"\r\n" +
+                    "Content-Type: application/octet-stream\r\n\r\n");
+                await spool.WriteAsync(prologue, ct);
+                await content.CopyToAsync(spool, ct);
+                await spool.WriteAsync(System.Text.Encoding.UTF8.GetBytes($"\r\n--{boundary}--\r\n"), ct);
+            }
+
+            await using var body = File.OpenRead(tempPath);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StreamContent(body) };
+            request.Content.Headers.TryAddWithoutValidation("Content-Type", $"multipart/form-data; boundary={boundary}");
+
+            var http = httpFactory.CreateClient(UploadHttpClientName);
+            using var response = await http.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+            EnsureFileStationSuccess(await response.Content.ReadAsStringAsync(ct), "upload");
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    public async Task CreateFolderAsync(string parentPath, string name, CancellationToken ct = default)
+    {
+        using var doc = await GetJsonAsync(sid =>
+            $"cgi-bin/filemanager/utilRequest.cgi?func=createdir&dest_path={Uri.EscapeDataString(parentPath)}" +
+            $"&dest_folder={Uri.EscapeDataString(name)}&sid={sid}", ct);
+        EnsureFileStationSuccess(doc.RootElement, "createdir");
+    }
+
+    private static void EnsureFileStationSuccess(string body, string operation)
+    {
+        using var doc = JsonDocument.Parse(body);
+        EnsureFileStationSuccess(doc.RootElement, operation);
+    }
+
+    // File Station signals success as {"status": 1}; anything else is an error code
+    // (2/3 auth, 4 permission, 33 name exists, ...).
+    private static void EnsureFileStationSuccess(JsonElement root, string operation)
+    {
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("status", out var status)
+            && status.ValueKind == JsonValueKind.Number
+            && status.GetInt32() is var code && code != 1)
+        {
+            throw new InvalidOperationException(code switch
+            {
+                4 => $"File Station refused the {operation} (permission denied — does the Labby account have write access here?)",
+                33 => "That name already exists here.",
+                _ => $"File Station {operation} failed with status {code}.",
+            });
+        }
     }
 
     private async Task<JsonDocument> GetJsonAsync(Func<string, string> buildUrl, CancellationToken ct)
