@@ -1,6 +1,7 @@
 @page "/media"
 @rendermode InteractiveServer
 @inject MediaHub Hub
+@inject ILogger<Media> Logger
 @implements IDisposable
 
 <PageTitle>Labby — Media</PageTitle>
@@ -258,9 +259,19 @@ else
         return Task.WhenAll(tasks);
     }
 
+    // The hub converts source failures into per-card Error values, but if anything
+    // slips through, swallow it here — a faulted load must never kill the circuit
+    // and freeze every card at "Loading".
     private async Task AssignAsync<T>(Task<T> fetch, Action<T> setter)
     {
-        setter(await fetch);
+        try
+        {
+            setter(await fetch);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Media card load failed");
+        }
         await InvokeAsync(StateHasChanged);
     }
 
