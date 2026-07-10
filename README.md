@@ -11,6 +11,7 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **Files** (`/files`) | Browse QNAP shares, download/upload files, create folders, rename/move/delete, and generate signed 7-day share links that work without a login |
 | **Containers** (`/containers`) | Embedded [Kontainr](https://github.com/chrisdfennell/Kontainr) dashboard (full Docker management), plus a Container Station tab with per-container CPU/RAM, start/stop/restart, and a logs viewer (needs the docker.sock mount from the compose file) |
 | **Media** (`/media`) | Plex now-playing (via Tautulli), recently added (Plex), active downloads with speeds and pause/resume (qBittorrent + NZBGet), the Sonarr/Radarr download queue, add-download-by-link (magnet/NZB), stop-stream buttons, upcoming episodes/movies, pending Overseerr requests with approve/decline, and 30-day watch statistics (plays chart, top shows/movies/users) — auto-refreshing every 15s |
+| **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, today's high/low/peak-gust/rain/UV/solar and sunrise/sunset tiles, an animated rain radar (RainViewer) centered on the station, and 24h/48h/7d history charts — temperature, wind (with direction arrows and "wind from" tooltips), humidity, barometer, rain, solar radiation, indoor vs outdoor — logged to SQLite every 5 minutes |
 | **Uptime** (`/uptime`) | Status-page view of every dashboard service: uptime % (24h/7d), a 30-day daily bar strip, and an outage log with durations — history persisted to SQLite |
 | **Network** (`/network`) | Latency charts for pinged hosts (`Network:PingHosts`, 60s cadence, packet-loss %) and scheduled internet speed tests via bundled librespeed-cli (`Network:SpeedtestHours`, 0 = off; optional `MinDownloadMbps` slow-internet alert) |
 | **Terminal** (`/terminal`) | Embeds any web terminal (e.g. a web-SSH container) via `Terminal:Url` / env `TERMINAL_URL` — browser-loaded iframe, hidden when unset |
@@ -18,7 +19,6 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **Notes** (`/notes`) | Markdown notes/runbooks persisted to SQLite, with live preview |
 
 Everywhere: **Ctrl+K / Cmd+K** opens a command palette that jumps to any page, service, or quick link. Labby also ships a web-app manifest, so "Add to Home Screen" on a phone gets a proper icon and standalone window (full PWA install requires HTTPS — put Labby behind a reverse proxy with a certificate if you want that).
-| **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, today's high/low/peak-gust/rain/UV/solar and sunrise/sunset tiles, and 24h/48h/7d history charts — temperature, wind (with direction arrows and "wind from" tooltips), humidity, barometer, rain, solar radiation, indoor vs outdoor — logged to SQLite every 5 minutes |
 
 ## Setup
 
