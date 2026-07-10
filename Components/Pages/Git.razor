@@ -1,0 +1,152 @@
+@page "/git"
+@rendermode InteractiveServer
+@inject GitClient Api
+@inject ILogger<Git> Logger
+
+<PageTitle>Labby — Git</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">🐙 Git</h1>
+    @if (Api.IsConfigured)
+    {
+        <a class="btn btn-sm btn-outline-secondary ms-auto" href="@Api.BaseUrl" target="_blank" rel="noreferrer">
+            Open MyPersonalGit ↗
+        </a>
+    }
+</div>
+
+@if (!Api.IsConfigured)
+{
+    <div class="alert alert-warning">
+        MyPersonalGit isn't configured — set <code>Git:Url</code> (env <code>MYPERSONALGIT_URL</code>) and
+        <code>Git:Token</code> (env <code>MYPERSONALGIT_TOKEN</code>, a <code>mypg_…</code> personal access token
+        from Settings → Tokens) to a reachable
+        <a href="https://github.com/chrisdfennell/MyPersonalGit" target="_blank" rel="noreferrer">MyPersonalGit</a> instance.
+    </div>
+}
+else if (_overview is null)
+{
+    <p class="text-muted">Loading repositories…</p>
+}
+else if (_overview.Error is { } error)
+{
+    <div class="alert alert-danger">MyPersonalGit: @error</div>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3"><div class="stat-tile"><div class="stat-value">@_overview.RepoCount</div><div class="stat-label">repositories</div></div></div>
+        <div class="col-6 col-lg-3"><div class="stat-tile"><div class="stat-value">@_overview.OpenPulls.Count</div><div class="stat-label">open pull requests</div></div></div>
+        <div class="col-6 col-lg-3"><div class="stat-tile"><div class="stat-value">@_overview.OpenIssues.Count</div><div class="stat-label">open issues</div></div></div>
+        <div class="col-6 col-lg-3"><div class="stat-tile"><div class="stat-value">@_overview.TotalStars</div><div class="stat-label">stars</div></div></div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-7">
+            <div class="card h-100">
+                <div class="card-header">📚 Repositories</div>
+                <div class="card-body p-0">
+                    @if (_overview.Repos.Count == 0)
+                    {
+                        <div class="p-3 text-muted">No repositories yet.</div>
+                    }
+                    else
+                    {
+                        <table class="table table-sm table-hover align-middle mb-0">
+                            <thead>
+                                <tr><th>Name</th><th class="text-end">Commits</th><th class="text-end">PRs</th><th class="text-end">Issues</th><th class="text-end">Updated</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var r in _overview.Repos)
+                                {
+                                    <tr>
+                                        <td>
+                                            <a href="@($"{Api.BaseUrl}/{r.Name}")" target="_blank" rel="noreferrer" class="fw-semibold text-decoration-none">@r.Name</a>
+                                            @if (r.IsPrivate)
+                                            {
+                                                <span class="badge bg-secondary ms-1">private</span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(r.Description))
+                                            {
+                                                <div class="text-muted small text-truncate" style="max-width: 24rem">@r.Description</div>
+                                            }
+                                        </td>
+                                        <td class="text-end text-muted">@r.Commits</td>
+                                        <td class="text-end @(r.OpenPulls > 0 ? "state-warn" : "text-muted")">@(r.OpenPulls?.ToString() ?? "—")</td>
+                                        <td class="text-end @(r.OpenIssues > 0 ? "state-warn" : "text-muted")">@(r.OpenIssues?.ToString() ?? "—")</td>
+                                        <td class="text-end text-muted small text-nowrap">@Ago(r.UpdatedAt)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card mb-3">
+                <div class="card-header">🔀 Open pull requests</div>
+                <div class="card-body">
+                    @if (_overview.OpenPulls.Count == 0)
+                    {
+                        <span class="text-muted">No open pull requests. 🎉</span>
+                    }
+                    else
+                    {
+                        @foreach (var p in _overview.OpenPulls)
+                        {
+                            <div class="git-item">
+                                <a href="@($"{Api.BaseUrl}/{p.Repo}/pulls/{p.Number}")" target="_blank" rel="noreferrer" class="fw-semibold text-decoration-none text-truncate d-block">
+                                    @(p.IsDraft ? "📝 " : "")@p.Title
+                                </a>
+                                <div class="text-muted small">@p.Repo #@p.Number · @p.Author · @p.SourceBranch → @p.TargetBranch</div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">⚠️ Open issues</div>
+                <div class="card-body">
+                    @if (_overview.OpenIssues.Count == 0)
+                    {
+                        <span class="text-muted">No open issues. 🎉</span>
+                    }
+                    else
+                    {
+                        @foreach (var i in _overview.OpenIssues)
+                        {
+                            <div class="git-item">
+                                <a href="@($"{Api.BaseUrl}/{i.Repo}/issues/{i.Number}")" target="_blank" rel="noreferrer" class="fw-semibold text-decoration-none text-truncate d-block">@i.Title</a>
+                                <div class="text-muted small">@i.Repo #@i.Number · @i.Author · @Ago(i.CreatedAt)@(i.CommentCount > 0 ? $" · 💬 {i.CommentCount}" : "")</div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private GitOverview? _overview;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !Api.IsConfigured)
+            return;
+        try
+        {
+            _overview = await Api.GetOverviewAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Git overview load failed");
+            _overview = new GitOverview { Error = ex.GetBaseException().Message };
+        }
+        StateHasChanged();
+    }
+
+    private static string Ago(DateTimeOffset when) =>
+        when == DateTimeOffset.MinValue ? "—" : $"{Format.ShortDuration(DateTimeOffset.Now - when)} ago";
+}

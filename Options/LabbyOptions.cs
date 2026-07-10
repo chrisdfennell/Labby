@@ -63,6 +63,20 @@ public sealed class OsintOptions
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
 }
 
+/// <summary>MyPersonalGit (github.com/chrisdfennell/MyPersonalGit) integration for the Git page and dashboard card.</summary>
+public sealed class GitOptions
+{
+    public const string SectionName = "Git";
+
+    /// <summary>Base URL of the MyPersonalGit instance. Reached from the Labby server for the API and by the browser for repo links.</summary>
+    public string Url { get; set; } = "";
+
+    /// <summary>A personal access token ("mypg_…"). Kept in the environment, never in appsettings — the repo is public.</summary>
+    public string Token { get; set; } = "";
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(Url) && !string.IsNullOrWhiteSpace(Token);
+}
+
 /// <summary>Media-stack integrations shown on the Media page. Each source is optional.</summary>
 public sealed class MediaOptions
 {

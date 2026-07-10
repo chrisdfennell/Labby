@@ -193,6 +193,37 @@ code {
     overflow: auto;
 }
 
+.stat-tile {
+    background: var(--lab-panel);
+    border: 1px solid var(--lab-border);
+    border-radius: 0.6rem;
+    padding: 0.9rem 1rem;
+    height: 100%;
+}
+
+.stat-tile .stat-value {
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--lab-accent);
+}
+
+.stat-tile .stat-label {
+    color: var(--lab-text-muted, #8b98a5);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.git-item {
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--lab-border);
+}
+
+.git-item:last-child {
+    border-bottom: none;
+}
+
 .files-preview {
     background: var(--lab-panel-deep);
     text-align: center;

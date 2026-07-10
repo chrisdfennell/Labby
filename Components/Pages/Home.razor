@@ -10,6 +10,7 @@
 @inject MinerClient Miners
 @inject PresenceMonitor Presence
 @inject NotesStore Notes
+@inject GitClient Git
 @inject MetricsStore Metrics
 @inject Microsoft.Extensions.Options.IOptions<DashboardOptions> Dashboard
 @implements IDisposable
@@ -89,6 +90,37 @@
                             <span><span class="status-dot @(d.IsHome ? "up" : "pending")"></span> @d.Name</span>
                             <span class="text-muted small">@(d.IsHome ? "home" : d.LastSeen is { } seen ? $"seen {Format.ShortDuration(DateTimeOffset.Now - seen)} ago" : "away")</span>
                         </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+    @if (Git.IsConfigured)
+    {
+        <div class="col-lg-3 col-md-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between">
+                    <span>🐙 Git</span>
+                    <a href="git" class="small">git →</a>
+                </div>
+                <div class="card-body">
+                    @if (_git is null)
+                    {
+                        <span class="text-muted">Loading…</span>
+                    }
+                    else if (_git.Error is { } err)
+                    {
+                        <span class="text-danger small">@err</span>
+                    }
+                    else
+                    {
+                        <div>📚 <strong>@_git.RepoCount</strong> repositories</div>
+                        <div>🔀 <strong>@_git.OpenPulls.Count</strong> open PRs</div>
+                        <div>⚠️ <strong>@_git.OpenIssues.Count</strong> open issues</div>
+                        @if (_git.MostRecent is { } recent)
+                        {
+                            <div class="text-muted small text-truncate">last: @recent.Name · @Format.ShortDuration(DateTimeOffset.Now - recent.UpdatedAt) ago</div>
+                        }
                     }
                 </div>
             </div>
@@ -373,7 +405,7 @@
 
     // Cards load independently so one failing doesn't blank the others.
     private Task LoadCardsAsync() =>
-        Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync(), LoadLayoutAsync(), LoadPinnedNoteAsync());
+        Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync(), LoadLayoutAsync(), LoadPinnedNoteAsync(), LoadGitAsync());
 
     // Same hardening as the Notes page: markdown only, no raw HTML passthrough.
     private static readonly MarkdownPipeline NotePipeline =
@@ -382,6 +414,22 @@
     private NotesStore.Note? _pinnedNote;
 
     private async Task LoadPinnedNoteAsync() => _pinnedNote = await Notes.GetPinnedAsync();
+
+    private GitOverview? _git;
+
+    private async Task LoadGitAsync()
+    {
+        if (!Git.IsConfigured)
+            return;
+        try
+        {
+            _git = await Git.GetOverviewAsync();
+        }
+        catch (Exception)
+        {
+            // The card is a glance; the /git page surfaces real errors.
+        }
+    }
 
     // Block subsidy after the 2024 halving (until ~2028).
     private const double BlockRewardBtc = 3.125;

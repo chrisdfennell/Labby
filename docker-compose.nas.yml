@@ -42,6 +42,9 @@ services:
       Terminal__Url: ${TERMINAL_URL:-}
       # OSINT Hub embed (also browser-loaded); leave empty to hide the OSINT page.
       Osint__Url: ${OSINT_URL:-}
+      # MyPersonalGit API (server-loaded); token is a mypg_ PAT. Leave empty to hide the Git page.
+      Git__Url: ${MYPERSONALGIT_URL:-}
+      Git__Token: ${MYPERSONALGIT_TOKEN:-}
       # Media page integrations — all optional.
       Media__Plex__Url: ${PLEX_BASE_URL:-}
       Media__Plex__ApiKey: ${PLEX_TOKEN:-}

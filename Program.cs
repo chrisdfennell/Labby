@@ -17,6 +17,7 @@ builder.Services.Configure<DashboardOptions>(builder.Configuration.GetSection(Da
 builder.Services.Configure<KontainrOptions>(builder.Configuration.GetSection(KontainrOptions.SectionName));
 builder.Services.Configure<TerminalOptions>(builder.Configuration.GetSection(TerminalOptions.SectionName));
 builder.Services.Configure<OsintOptions>(builder.Configuration.GetSection(OsintOptions.SectionName));
+builder.Services.Configure<GitOptions>(builder.Configuration.GetSection(GitOptions.SectionName));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
 builder.Services.Configure<HistoryOptions>(builder.Configuration.GetSection(HistoryOptions.SectionName));
 builder.Services.Configure<AlertOptions>(builder.Configuration.GetSection(AlertOptions.SectionName));
@@ -87,6 +88,8 @@ builder.Services.AddHttpClient(MediaHub.HttpClientName, client => client.Timeout
 
 builder.Services.AddHttpClient(MinerClient.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(8));
 
+builder.Services.AddHttpClient(GitClient.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
+
 builder.Services.AddHttpClient(ServiceHealthMonitor.HttpClientName)
     .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(10))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
@@ -108,6 +111,7 @@ builder.Services.AddSingleton<WeatherHistoryService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WeatherHistoryService>());
 builder.Services.AddSingleton<WakeOnLanService>();
 builder.Services.AddSingleton<MinerClient>();
+builder.Services.AddSingleton<GitClient>();
 builder.Services.AddSingleton<DockerEngineClient>();
 builder.Services.AddSingleton<ShareLinkService>();
 builder.Services.AddSingleton<NotesStore>();
