@@ -26,6 +26,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     private readonly Cached<RequestsSnapshot> _requests = new();
     private readonly Cached<RecentlyAddedSnapshot> _recent = new();
     private readonly Cached<QueueSnapshot> _queue = new();
+    private readonly Cached<WatchStatsSnapshot> _watchStats = new();
     private readonly ConcurrentDictionary<string, string> _titleCache = new();
     private string? _qbitSid;
 
@@ -57,6 +58,21 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
 
     public Task<QueueSnapshot> GetQueueAsync(CancellationToken ct = default) =>
         GetCachedAsync(_queue, LiveTtl, FetchQueueAsync, ct);
+
+    public Task<WatchStatsSnapshot> GetWatchStatsAsync(CancellationToken ct = default) =>
+        GetCachedAsync(_watchStats, CalendarTtl, FetchWatchStatsAsync, ct);
+
+    /// <summary>Approve or decline a pending Overseerr/Seerr request.</summary>
+    public async Task ResolveRequestAsync(long requestId, bool approve, CancellationToken ct = default)
+    {
+        var http = httpFactory.CreateClient(HttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Post,
+            $"{_options.Overseerr.Url.TrimEnd('/')}/api/v1/request/{requestId}/{(approve ? "approve" : "decline")}");
+        request.Headers.Add("X-Api-Key", _options.Overseerr.ApiKey);
+        using var response = await http.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        _requests.At = DateTimeOffset.MinValue; // refresh the card on the next read
+    }
 
     /// <summary>Pause or resume a download and drop the cache so the next poll shows it.</summary>
     public async Task SetDownloadPausedAsync(DownloadItem item, bool pause, CancellationToken ct = default)
@@ -391,6 +407,69 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
         return (items, rate);
     }
 
+    // ── Tautulli watch statistics ────────────────────────────────────────
+
+    private async Task<WatchStatsSnapshot> FetchWatchStatsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var baseUrl = $"{_options.Tautulli.Url.TrimEnd('/')}/api/v2?apikey={Uri.EscapeDataString(_options.Tautulli.ApiKey)}";
+
+            using var playsDoc = await GetJsonAsync($"{baseUrl}&cmd=get_plays_by_date&time_range=30", ct);
+            var playsData = playsDoc.RootElement.GetProperty("response").GetProperty("data");
+            var days = new List<DateTimeOffset>();
+            foreach (var c in playsData.GetProperty("categories").EnumerateArray())
+            {
+                days.Add(DateTimeOffset.TryParse(c.GetString(), out var d) ? d : DateTimeOffset.Now);
+            }
+            List<double?> SeriesFor(string name)
+            {
+                foreach (var s in playsData.GetProperty("series").EnumerateArray())
+                {
+                    if (Str(s, "name").Equals(name, StringComparison.OrdinalIgnoreCase) && s.TryGetProperty("data", out var data))
+                        return data.EnumerateArray().Select(v => (double?)v.GetDouble()).ToList();
+                }
+                return [];
+            }
+
+            using var statsDoc = await GetJsonAsync($"{baseUrl}&cmd=get_home_stats&time_range=30&stats_count=5", ct);
+            var top = new Dictionary<string, List<TopEntry>>();
+            foreach (var stat in statsDoc.RootElement.GetProperty("response").GetProperty("data").EnumerateArray())
+            {
+                var id = Str(stat, "stat_id");
+                if (id is not ("top_tv" or "top_movies" or "top_users") || !stat.TryGetProperty("rows", out var rows))
+                    continue;
+                top[id] = rows.EnumerateArray()
+                    .Select(r => new TopEntry(
+                        id == "top_users"
+                            ? (Str(r, "friendly_name") is { Length: > 0 } f ? f : Str(r, "user"))
+                            : Str(r, "title"),
+                        (long)(Num(r, "total_plays") ?? 0)))
+                    .Where(e => e.Name.Length > 0)
+                    .ToList();
+            }
+
+            return new WatchStatsSnapshot
+            {
+                Days = days,
+                TvPlays = SeriesFor("TV"),
+                MoviePlays = SeriesFor("Movies"),
+                TopShows = top.GetValueOrDefault("top_tv", []),
+                TopMovies = top.GetValueOrDefault("top_movies", []),
+                TopUsers = top.GetValueOrDefault("top_users", []),
+            };
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Tautulli stats fetch failed");
+            return new WatchStatsSnapshot { Error = Describe(ex) };
+        }
+    }
+
     // ── Sonarr/Radarr queues ─────────────────────────────────────────────
 
     private async Task<QueueSnapshot> FetchQueueAsync(CancellationToken ct)
@@ -535,7 +614,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
         {
             var baseUrl = _options.Overseerr.Url.TrimEnd('/');
             using var doc = await GetJsonAsync($"{baseUrl}/api/v1/request?take=15&filter=pending&sort=added", ct, apiKey: _options.Overseerr.ApiKey);
-            var pending = new List<(string Type, long TmdbId, string By, DateTimeOffset At)>();
+            var pending = new List<(long Id, string Type, long TmdbId, string By, DateTimeOffset At)>();
             foreach (var r in doc.RootElement.GetProperty("results").EnumerateArray())
             {
                 var type = Str(r, "type");
@@ -543,11 +622,12 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
                 var by = r.TryGetProperty("requestedBy", out var user)
                     ? (Str(user, "displayName") is { Length: > 0 } d ? d : Str(user, "plexUsername"))
                     : "";
-                pending.Add((type, tmdbId, by, Date(r, "createdAt") ?? DateTimeOffset.Now));
+                pending.Add(((long)(Num(r, "id") ?? 0), type, tmdbId, by, Date(r, "createdAt") ?? DateTimeOffset.Now));
             }
             // Titles need one lookup each; do them concurrently (and cached after first sight).
             var requests = await Task.WhenAll(pending.Select(async p => new MediaRequest
             {
+                Id = p.Id,
                 Title = await LookupTitleAsync(baseUrl, p.Type, p.TmdbId, ct),
                 Type = p.Type,
                 RequestedBy = p.By,

@@ -1,6 +1,9 @@
 @page "/files"
 @rendermode InteractiveServer
 @inject QnapFileStation FileStation
+@inject ShareLinkService ShareLinks
+@inject NavigationManager Nav
+@inject IJSRuntime Js
 
 <PageTitle>Labby — Files</PageTitle>
 
@@ -105,15 +108,67 @@ else
                         </td>
                         <td class="text-end text-muted">@(entry.IsFolder ? "—" : Format.Bytes(entry.SizeBytes))</td>
                         <td class="text-end text-muted">@(entry.Modified?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
-                        <td class="text-end">
+                        <td class="text-end text-nowrap">
                             @if (!entry.IsFolder)
                             {
                                 <a class="btn btn-sm btn-outline-primary"
                                    href="/api/files/download?path=@Uri.EscapeDataString(CurrentPath)&name=@Uri.EscapeDataString(entry.Name)"
                                    target="_blank" rel="noreferrer">Download</a>
+                                <button class="btn btn-sm btn-outline-secondary" title="Create a 7-day share link"
+                                        @onclick="() => ShareAsync(entry)">🔗</button>
+                            }
+                            <button class="btn btn-sm btn-outline-secondary" title="Rename"
+                                    @onclick="() => BeginAction(entry, RowAction.Rename)">✏️</button>
+                            <button class="btn btn-sm btn-outline-secondary" title="Move"
+                                    @onclick="() => BeginAction(entry, RowAction.Move)">📦</button>
+                            @if (_confirmDelete == entry.Name)
+                            {
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteAsync(entry)">confirm delete</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger" title="Delete"
+                                        @onclick="() => _confirmDelete = entry.Name">🗑</button>
                             }
                         </td>
                     </tr>
+                    @if (_actionFor == entry.Name && _action != RowAction.None)
+                    {
+                        <tr>
+                            <td colspan="4" class="files-action-row">
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    @if (_action == RowAction.Rename)
+                                    {
+                                        <span class="text-muted small">rename to</span>
+                                        <input class="form-control form-control-sm files-newfolder" @bind="_actionValue" @bind:event="oninput" />
+                                        <button class="btn btn-sm btn-outline-primary" disabled="@string.IsNullOrWhiteSpace(_actionValue)"
+                                                @onclick="() => RenameAsync(entry)">rename</button>
+                                    }
+                                    else if (_action == RowAction.Move)
+                                    {
+                                        <span class="text-muted small">move to folder</span>
+                                        <input class="form-control form-control-sm files-newfolder" style="width:22rem" @bind="_actionValue" @bind:event="oninput" />
+                                        <button class="btn btn-sm btn-outline-primary" disabled="@string.IsNullOrWhiteSpace(_actionValue)"
+                                                @onclick="() => MoveAsync(entry)">move</button>
+                                    }
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelAction">cancel</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    @if (_shareUrlFor == entry.Name && _shareUrl is not null)
+                    {
+                        <tr>
+                            <td colspan="4" class="files-action-row">
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    <span class="text-muted small">7-day link</span>
+                                    <input class="form-control form-control-sm files-sharelink" readonly value="@_shareUrl" />
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="CopyShareUrlAsync">@(_copied ? "copied ✓" : "copy")</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => _shareUrlFor = null">close</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
                 }
             </tbody>
         </table>
@@ -171,6 +226,79 @@ else
         catch (Exception ex)
         {
             _actionError = ex.GetBaseException().Message;
+        }
+    }
+
+    private enum RowAction { None, Rename, Move }
+
+    private RowAction _action = RowAction.None;
+    private string? _actionFor;
+    private string _actionValue = "";
+    private string? _confirmDelete;
+    private string? _shareUrlFor;
+    private string? _shareUrl;
+    private bool _copied;
+
+    private void BeginAction(FileEntry entry, RowAction action)
+    {
+        _action = action;
+        _actionFor = entry.Name;
+        _actionValue = action == RowAction.Rename ? entry.Name : CurrentPath;
+        _confirmDelete = null;
+        _shareUrlFor = null;
+    }
+
+    private void CancelAction()
+    {
+        _action = RowAction.None;
+        _actionFor = null;
+        _confirmDelete = null;
+    }
+
+    private Task RenameAsync(FileEntry entry) =>
+        RunRowActionAsync(() => FileStation.RenameAsync(CurrentPath, entry.Name, _actionValue.Trim()));
+
+    private Task MoveAsync(FileEntry entry) =>
+        RunRowActionAsync(() => FileStation.MoveAsync(CurrentPath, entry.Name, _actionValue.Trim()));
+
+    private Task DeleteAsync(FileEntry entry) =>
+        RunRowActionAsync(() => FileStation.DeleteAsync(CurrentPath, entry.Name));
+
+    private async Task RunRowActionAsync(Func<Task> action)
+    {
+        _actionError = null;
+        try
+        {
+            await action();
+            CancelAction();
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = ex.GetBaseException().Message;
+        }
+    }
+
+    private void ShareAsync(FileEntry entry)
+    {
+        var token = ShareLinks.CreateToken(CurrentPath, entry.Name, TimeSpan.FromDays(7));
+        _shareUrl = $"{Nav.BaseUri}share/{token}";
+        _shareUrlFor = entry.Name;
+        _copied = false;
+        _action = RowAction.None;
+        _actionFor = null;
+    }
+
+    private async Task CopyShareUrlAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", _shareUrl);
+            _copied = true;
+        }
+        catch (Exception)
+        {
+            // Clipboard needs a secure context; the readonly input is the fallback.
         }
     }
 

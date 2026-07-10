@@ -122,6 +122,20 @@ code {
     display: block;
 }
 
+.files-action-row {
+    background: var(--lab-panel-deep);
+}
+
+.files-sharelink {
+    width: min(34rem, 100%);
+    background: var(--lab-panel-deep);
+    border-color: var(--lab-border);
+    color: var(--lab-accent);
+    font-family: var(--lab-mono);
+    font-size: 0.78rem;
+}
+
+.files-newfolder,
 .files-toolbar .files-newfolder {
     width: 12rem;
     background: var(--lab-panel-deep);
@@ -414,6 +428,36 @@ code {
     .media-session + .media-session {
         border-top: 1px solid var(--lab-border);
     }
+
+.req-btn {
+    background: none;
+    border: 1px solid var(--lab-border);
+    border-radius: 4px;
+    font-family: var(--lab-mono);
+    font-size: 0.7rem;
+    padding: 0 0.4rem;
+    cursor: pointer;
+}
+
+    .req-btn.approve {
+        color: var(--lab-accent);
+        border-color: var(--lab-accent);
+    }
+
+        .req-btn.approve:hover:not(:disabled) {
+            background: var(--lab-accent);
+            color: #06231b;
+        }
+
+    .req-btn.decline {
+        color: var(--lab-red);
+        border-color: var(--lab-red);
+    }
+
+        .req-btn.decline:hover:not(:disabled) {
+            background: var(--lab-red);
+            color: #2a0a12;
+        }
 
 .dl-toggle {
     background: none;

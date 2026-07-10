@@ -126,6 +126,32 @@ public sealed class QnapFileStation(IHttpClientFactory httpFactory, QnapClient q
         EnsureFileStationSuccess(doc.RootElement, "createdir");
     }
 
+    public async Task RenameAsync(string path, string oldName, string newName, CancellationToken ct = default)
+    {
+        using var doc = await GetJsonAsync(sid =>
+            $"cgi-bin/filemanager/utilRequest.cgi?func=rename&path={Uri.EscapeDataString(path)}" +
+            $"&source_name={Uri.EscapeDataString(oldName)}&dest_name={Uri.EscapeDataString(newName)}&sid={sid}", ct);
+        EnsureFileStationSuccess(doc.RootElement, "rename");
+    }
+
+    public async Task MoveAsync(string sourcePath, string name, string destPath, CancellationToken ct = default)
+    {
+        using var doc = await GetJsonAsync(sid =>
+            $"cgi-bin/filemanager/utilRequest.cgi?func=move&source_path={Uri.EscapeDataString(sourcePath)}" +
+            $"&source_file={Uri.EscapeDataString(name)}&source_total=1" +
+            $"&dest_path={Uri.EscapeDataString(destPath)}&mode=1&sid={sid}", ct);
+        EnsureFileStationSuccess(doc.RootElement, "move");
+    }
+
+    /// <summary>Deletes a file or folder (QTS moves it to the share's recycle bin when enabled).</summary>
+    public async Task DeleteAsync(string path, string name, CancellationToken ct = default)
+    {
+        using var doc = await GetJsonAsync(sid =>
+            $"cgi-bin/filemanager/utilRequest.cgi?func=delete&path={Uri.EscapeDataString(path)}" +
+            $"&file_name={Uri.EscapeDataString(name)}&file_total=1&sid={sid}", ct);
+        EnsureFileStationSuccess(doc.RootElement, "delete");
+    }
+
     private static void EnsureFileStationSuccess(string body, string operation)
     {
         using var doc = JsonDocument.Parse(body);

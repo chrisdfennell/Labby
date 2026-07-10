@@ -294,6 +294,10 @@ else
                         }
                         else
                         {
+                            @if (_requestActionError is not null)
+                            {
+                                <div class="text-danger small">@_requestActionError</div>
+                            }
                             @foreach (var r in _requests.Requests)
                             {
                                 <div class="media-upcoming">
@@ -301,13 +305,94 @@ else
                                         <span class="fw-semibold text-truncate">@r.Title</span>
                                         <span class="badge bg-secondary">@r.Type</span>
                                     </div>
-                                    <div class="text-muted small">@r.RequestedBy · @r.At.ToString("MMM d")</div>
+                                    <div class="d-flex justify-content-between align-items-center gap-2">
+                                        <span class="text-muted small">@r.RequestedBy · @r.At.ToString("MMM d")</span>
+                                        <span class="text-nowrap">
+                                            <button type="button" class="req-btn approve" disabled="@_requestActionBusy"
+                                                    @onclick="() => ResolveRequestAsync(r, true)">✓ approve</button>
+                                            <button type="button" class="req-btn decline" disabled="@_requestActionBusy"
+                                                    @onclick="() => ResolveRequestAsync(r, false)">✗</button>
+                                        </span>
+                                    </div>
                                 </div>
                             }
                         }
                     </div>
                 </div>
             </div>
+        }
+        @if (Hub.TautulliConfigured)
+        {
+            <div class="col-12"><h4 class="mb-0 mt-2">Watch statistics (30 days)</h4></div>
+            @if (_watchStats is null)
+            {
+                <div class="col-12"><span class="text-muted">Loading…</span></div>
+            }
+            else if (_watchStats.Error is not null)
+            {
+                <div class="col-12"><span class="text-danger small">Tautulli: @_watchStats.Error</span></div>
+            }
+            else
+            {
+                @if (_watchStats.Days.Count >= 2)
+                {
+                    <div class="col-lg-6">
+                        <LineChart Title="📊 Plays per day" Unit=" plays" TickFormat="0" WideRange="true"
+                                   Times="_watchStats.Days" Series="_watchSeries" />
+                    </div>
+                }
+                <div class="col-lg-2 col-md-4">
+                    <div class="card h-100">
+                        <div class="card-header">📺 Top shows</div>
+                        <div class="card-body">
+                            @foreach (var e in _watchStats.TopShows)
+                            {
+                                <div class="d-flex justify-content-between gap-2 small">
+                                    <span class="text-truncate">@e.Name</span><span class="text-muted">@e.Plays</span>
+                                </div>
+                            }
+                            @if (_watchStats.TopShows.Count == 0)
+                            {
+                                <span class="text-muted small">No plays yet.</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-2 col-md-4">
+                    <div class="card h-100">
+                        <div class="card-header">🎬 Top movies</div>
+                        <div class="card-body">
+                            @foreach (var e in _watchStats.TopMovies)
+                            {
+                                <div class="d-flex justify-content-between gap-2 small">
+                                    <span class="text-truncate">@e.Name</span><span class="text-muted">@e.Plays</span>
+                                </div>
+                            }
+                            @if (_watchStats.TopMovies.Count == 0)
+                            {
+                                <span class="text-muted small">No plays yet.</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-2 col-md-4">
+                    <div class="card h-100">
+                        <div class="card-header">👤 Top users</div>
+                        <div class="card-body">
+                            @foreach (var e in _watchStats.TopUsers)
+                            {
+                                <div class="d-flex justify-content-between gap-2 small">
+                                    <span class="text-truncate">@e.Name</span><span class="text-muted">@e.Plays</span>
+                                </div>
+                            }
+                            @if (_watchStats.TopUsers.Count == 0)
+                            {
+                                <span class="text-muted small">No plays yet.</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
         }
     </div>
 }
@@ -320,8 +405,12 @@ else
     private RequestsSnapshot? _requests;
     private RecentlyAddedSnapshot? _recent;
     private QueueSnapshot? _queue;
+    private WatchStatsSnapshot? _watchStats;
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _watchSeries = [];
     private bool _downloadActionBusy;
     private string? _downloadActionError;
+    private bool _requestActionBusy;
+    private string? _requestActionError;
     private Timer? _refreshTimer;
 
     // Data loads after first render so prerendering never blocks on the media stack.
@@ -358,6 +447,12 @@ else
             tasks.Add(AssignAsync(Hub.GetRecentlyAddedAsync(), v => _recent = v));
         if (Hub.SonarrConfigured || Hub.RadarrConfigured)
             tasks.Add(AssignAsync(Hub.GetQueueAsync(), v => _queue = v));
+        if (Hub.TautulliConfigured)
+            tasks.Add(AssignAsync(Hub.GetWatchStatsAsync(), v =>
+            {
+                _watchStats = v;
+                _watchSeries = [("TV", v.TvPlays), ("Movies", v.MoviePlays)];
+            }));
         return Task.WhenAll(tasks);
     }
 
@@ -393,6 +488,25 @@ else
         finally
         {
             _downloadActionBusy = false;
+        }
+    }
+
+    private async Task ResolveRequestAsync(MediaRequest request, bool approve)
+    {
+        _requestActionBusy = true;
+        _requestActionError = null;
+        try
+        {
+            await Hub.ResolveRequestAsync(request.Id, approve);
+            _requests = await Hub.GetRequestsAsync();
+        }
+        catch (Exception ex)
+        {
+            _requestActionError = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _requestActionBusy = false;
         }
     }
 

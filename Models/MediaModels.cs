@@ -101,8 +101,23 @@ public sealed record RequestsSnapshot
 
 public sealed record MediaRequest
 {
+    public long Id { get; init; }
     public string Title { get; init; } = "";
     public string Type { get; init; } = "";
     public string RequestedBy { get; init; } = "";
     public DateTimeOffset At { get; init; }
 }
+
+/// <summary>Tautulli watch statistics (last 30 days).</summary>
+public sealed record WatchStatsSnapshot
+{
+    public IReadOnlyList<DateTimeOffset> Days { get; init; } = [];
+    public IReadOnlyList<double?> TvPlays { get; init; } = [];
+    public IReadOnlyList<double?> MoviePlays { get; init; } = [];
+    public IReadOnlyList<TopEntry> TopShows { get; init; } = [];
+    public IReadOnlyList<TopEntry> TopMovies { get; init; } = [];
+    public IReadOnlyList<TopEntry> TopUsers { get; init; } = [];
+    public string? Error { get; init; }
+}
+
+public sealed record TopEntry(string Name, long Plays);

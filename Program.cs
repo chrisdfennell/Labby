@@ -106,6 +106,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<WeatherHistoryServ
 builder.Services.AddSingleton<WakeOnLanService>();
 builder.Services.AddSingleton<MinerClient>();
 builder.Services.AddSingleton<DockerEngineClient>();
+builder.Services.AddSingleton<ShareLinkService>();
 builder.Services.AddSingleton<MetricsStore>();
 builder.Services.AddHostedService<MetricsHistoryService>();
 builder.Services.AddSingleton<PingMonitor>();
@@ -139,6 +140,25 @@ app.MapPost("/logout", async (HttpContext context, IAntiforgery antiforgery) =>
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.LocalRedirect("/login");
 });
+
+// Signed, expiring share links — the HMAC token is the authorization, so no login.
+app.MapGet("/share/{token}", async (string token, ShareLinkService shareLinks, QnapFileStation fileStation, HttpContext context, CancellationToken ct) =>
+{
+    if (shareLinks.Validate(token) is not { } link)
+        return Results.NotFound("This share link is invalid or has expired.");
+
+    try
+    {
+        var upstream = await fileStation.OpenDownloadAsync(link.FolderPath, link.FileName, ct);
+        context.Response.RegisterForDispose(upstream);
+        var contentType = upstream.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+        return Results.Stream(await upstream.Content.ReadAsStreamAsync(ct), contentType, fileDownloadName: link.FileName);
+    }
+    catch (HttpRequestException)
+    {
+        return Results.NotFound("The shared file is no longer available.");
+    }
+}).AllowAnonymous();
 
 // Streams NAS file downloads through the app (the browser can't use our QTS session directly).
 var download = app.MapGet("/api/files/download", async (string path, string name, QnapFileStation fileStation, HttpContext context, CancellationToken ct) =>
