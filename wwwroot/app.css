@@ -278,6 +278,11 @@ code {
     stroke-width: 2;
 }
 
+.chart-dir-arrow {
+    fill: var(--lab-muted);
+    opacity: 0.85;
+}
+
 .chart-cursor {
     stroke: #2e4152;
     stroke-width: 1;

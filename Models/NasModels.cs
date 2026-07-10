@@ -137,4 +137,15 @@ public sealed record WeatherPoint
     public double? WindSpeedMph { get; init; }
     public double? WindGustMph { get; init; }
     public double? DailyRainIn { get; init; }
+    public double? WindDirDegrees { get; init; }
+    public double? DewPointF { get; init; }
+    public double? Uv { get; init; }
+    public double? SolarRadiationWm2 { get; init; }
+    public double? IndoorTempF { get; init; }
+    public double? IndoorHumidityPercent { get; init; }
+
+    public string WindDirCompass => WindDirDegrees is not double d
+        ? "—"
+        : new[] { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW" }
+            [(int)Math.Round(((d % 360) + 360) % 360 / 22.5) % 16];
 }

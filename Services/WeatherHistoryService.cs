@@ -19,6 +19,8 @@ public sealed class WeatherHistoryService(
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(5);
 
     private readonly string _dbPath = Path.GetFullPath(options.Value.DatabasePath, env.ContentRootPath);
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private bool _initialized;
 
     private string ConnectionString => new SqliteConnectionStringBuilder { DataSource = _dbPath }.ToString();
 
@@ -61,6 +63,24 @@ public sealed class WeatherHistoryService(
 
     private async Task InitializeAsync(CancellationToken ct)
     {
+        if (_initialized)
+            return;
+        await _initLock.WaitAsync(ct);
+        try
+        {
+            if (_initialized)
+                return;
+            await InitializeCoreAsync(ct);
+            _initialized = true;
+        }
+        finally
+        {
+            _initLock.Release();
+        }
+    }
+
+    private async Task InitializeCoreAsync(CancellationToken ct)
+    {
         Directory.CreateDirectory(Path.GetDirectoryName(_dbPath)!);
         await using var conn = new SqliteConnection(ConnectionString);
         await conn.OpenAsync(ct);
@@ -80,6 +100,25 @@ public sealed class WeatherHistoryService(
             );
             """;
         await cmd.ExecuteNonQueryAsync(ct);
+
+        // Columns added after the first release; bring older databases up to date.
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var infoCmd = conn.CreateCommand();
+        infoCmd.CommandText = "PRAGMA table_info(weather)";
+        await using (var reader = await infoCmd.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+                existing.Add(reader.GetString(1));
+        }
+        foreach (var column in (string[])["wind_dir", "dew_point_f", "uv", "solar_wm2", "indoor_temp_f", "indoor_humidity"])
+        {
+            if (existing.Contains(column))
+                continue;
+            var alter = conn.CreateCommand();
+            alter.CommandText = $"ALTER TABLE weather ADD COLUMN {column} REAL";
+            await alter.ExecuteNonQueryAsync(ct);
+        }
+
         logger.LogInformation("Weather history database ready at {Path}", _dbPath);
     }
 
@@ -90,8 +129,9 @@ public sealed class WeatherHistoryService(
         var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO weather
-                (observed_at, temp_f, feels_like_f, humidity, barometer, wind_mph, wind_gust_mph, daily_rain_in)
-            VALUES ($at, $temp, $feels, $hum, $baro, $wind, $gust, $rain);
+                (observed_at, temp_f, feels_like_f, humidity, barometer, wind_mph, wind_gust_mph, daily_rain_in,
+                 wind_dir, dew_point_f, uv, solar_wm2, indoor_temp_f, indoor_humidity)
+            VALUES ($at, $temp, $feels, $hum, $baro, $wind, $gust, $rain, $dir, $dew, $uv, $solar, $itemp, $ihum);
             """;
         cmd.Parameters.AddWithValue("$at", r.ObservedAt.ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("$temp", (object?)r.TempF ?? DBNull.Value);
@@ -101,6 +141,12 @@ public sealed class WeatherHistoryService(
         cmd.Parameters.AddWithValue("$wind", (object?)r.WindSpeedMph ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$gust", (object?)r.WindGustMph ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$rain", (object?)r.DailyRainIn ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$dir", (object?)r.WindDirDegrees ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$dew", (object?)r.DewPointF ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$uv", (object?)r.Uv ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$solar", (object?)r.SolarRadiationWm2 ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$itemp", (object?)r.IndoorTempF ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ihum", (object?)r.IndoorHumidityPercent ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -111,11 +157,13 @@ public sealed class WeatherHistoryService(
         if (!File.Exists(_dbPath))
             return results;
 
+        await InitializeAsync(ct); // reads may hit an old-schema database before the logger runs
         await using var conn = new SqliteConnection(ConnectionString);
         await conn.OpenAsync(ct);
         var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT observed_at, temp_f, feels_like_f, humidity, barometer, wind_mph, wind_gust_mph, daily_rain_in
+            SELECT observed_at, temp_f, feels_like_f, humidity, barometer, wind_mph, wind_gust_mph, daily_rain_in,
+                   wind_dir, dew_point_f, uv, solar_wm2, indoor_temp_f, indoor_humidity
             FROM weather WHERE observed_at >= $from ORDER BY observed_at;
             """;
         cmd.Parameters.AddWithValue("$from", from.ToUnixTimeSeconds());
@@ -133,6 +181,12 @@ public sealed class WeatherHistoryService(
                 WindSpeedMph = NullableDouble(reader, 5),
                 WindGustMph = NullableDouble(reader, 6),
                 DailyRainIn = NullableDouble(reader, 7),
+                WindDirDegrees = NullableDouble(reader, 8),
+                DewPointF = NullableDouble(reader, 9),
+                Uv = NullableDouble(reader, 10),
+                SolarRadiationWm2 = NullableDouble(reader, 11),
+                IndoorTempF = NullableDouble(reader, 12),
+                IndoorHumidityPercent = NullableDouble(reader, 13),
             });
         }
         return results;

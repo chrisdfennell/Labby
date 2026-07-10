@@ -16,7 +16,7 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **Notes** (`/notes`) | Markdown notes/runbooks persisted to SQLite, with live preview |
 
 Everywhere: **Ctrl+K / Cmd+K** opens a command palette that jumps to any page, service, or quick link. Labby also ships a web-app manifest, so "Add to Home Screen" on a phone gets a proper icon and standalone window (full PWA install requires HTTPS — put Labby behind a reverse proxy with a certificate if you want that).
-| **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, plus 24h/48h/7d history charts (temperature, wind, humidity, barometer) logged to a small SQLite file every 5 minutes |
+| **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, today's high/low/peak-gust/rain/UV/solar tiles, and 24h/48h/7d history charts — temperature, wind (with direction arrows and "wind from" tooltips), humidity, barometer, rain, solar radiation, indoor vs outdoor — logged to SQLite every 5 minutes |
 
 ## Setup
 

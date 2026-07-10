@@ -70,6 +70,12 @@
             ? { weekday: "short", hour: "2-digit", minute: "2-digit" }
             : { hour: "2-digit", minute: "2-digit" });
         t.appendChild(when);
+        if (meta.pl && meta.pl[i]) {
+            const extra = document.createElement("div");
+            extra.className = "chart-tooltip-time";
+            extra.textContent = meta.pl[i];
+            t.appendChild(extra);
+        }
         meta.s.forEach((name, s) => {
             const row = document.createElement("div");
             row.className = "chart-tooltip-row";

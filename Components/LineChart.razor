@@ -56,6 +56,20 @@
                             @SvgText(X(index) + 8, Y(value) + 3.5, "chart-endlabel", "start", value.ToString(ValueFormat))
                         }
                     }
+                    @* sparse wind-direction arrows (pointing downwind; the value is where it blows FROM) *@
+                    @if (Directions is { } directions)
+                    {
+                        var step = Math.Max(1, Times.Count / 16);
+                        for (var i = step / 2; i < Times.Count; i += step)
+                        {
+                            if (i < directions.Count && directions[i] is { } deg)
+                            {
+                                <g transform="translate(@Inv(X(i)), @Inv(PadT + 5)) rotate(@Inv(deg + 180))">
+                                    <path d="M0,-4.5 L3,3.5 L0,1.5 L-3,3.5 Z" class="chart-dir-arrow" />
+                                </g>
+                            }
+                        }
+                    }
                     @* hover layer targets, driven by charts.js *@
                     <line class="chart-cursor" x1="0" x2="0" y1="@Inv(PadT)" y2="@Inv(H - PadB)" />
                     @for (var s = 0; s < Series.Count; s++)
@@ -84,6 +98,12 @@
     [Parameter] public string TickFormat { get; set; } = "0.#";
     /// <summary>Show weekday+hour instead of hour:minute on the x axis (for multi-day ranges).</summary>
     [Parameter] public bool WideRange { get; set; }
+
+    /// <summary>Optional per-point annotation shown as an extra tooltip row (e.g. "from SSW").</summary>
+    [Parameter] public IReadOnlyList<string?>? PointLabels { get; set; }
+
+    /// <summary>Optional per-point bearings (degrees, meteorological "from"); draws sparse direction arrows along the top.</summary>
+    [Parameter] public IReadOnlyList<double?>? Directions { get; set; }
 
     private double _min, _max;
     private List<double> _ticks = [];
@@ -208,6 +228,7 @@
         c = Palette[..Series.Count],
         t = Times.Select(x => x.ToUnixTimeMilliseconds()),
         v = Series.Select(x => x.Values),
+        pl = PointLabels,
         w = W, h = H, l = PadL, r = PadR, pt = PadT, pb = PadB,
         min = _min, max = _max,
         wide = WideRange,
