@@ -7,6 +7,7 @@
 @inject MediaHub Media
 @inject WakeOnLanService Wol
 @inject MinerClient Miners
+@inject PresenceMonitor Presence
 @inject MetricsStore Metrics
 @inject Microsoft.Extensions.Options.IOptions<DashboardOptions> Dashboard
 @implements IDisposable
@@ -63,6 +64,23 @@
             </div>
         </div>
     </div>
+    @if (Presence.AnyConfigured)
+    {
+        <div class="col-lg-3 col-md-6">
+            <div class="card h-100">
+                <div class="card-header">🏠 Who's home</div>
+                <div class="card-body">
+                    @foreach (var d in Presence.Devices)
+                    {
+                        <div class="d-flex justify-content-between align-items-baseline gap-2">
+                            <span><span class="status-dot @(d.IsHome ? "up" : "pending")"></span> @d.Name</span>
+                            <span class="text-muted small">@(d.IsHome ? "home" : d.LastSeen is { } seen ? $"seen {Format.ShortDuration(DateTimeOffset.Now - seen)} ago" : "away")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
     @if (Media.AnyConfigured)
     {
         <div class="col-lg-3 col-md-12">
@@ -224,6 +242,7 @@
                                     <span title="Best difficulty this session / ever">🏆 @(m.BestDiffSession ?? "—") <span class="text-muted">/ @(m.BestDiffEver ?? "—")</span></span>
                                     <span title="Uptime">⏱ @Format.Uptime(m.Uptime)</span>
                                     <span title="Wi-Fi signal">📶 @(m.RssiDbm?.ToString("0") ?? "—") dBm</span>
+                                    <span title="Odds of finding a block at this hashrate vs current network difficulty">🎲 @m.OddsDisplay</span>
                                 </div>
                             }
                         </div>

@@ -6,7 +6,10 @@
 
 <PageTitle>Labby — Uptime</PageTitle>
 
-<h1 class="mb-1">📈 Uptime</h1>
+<div class="d-flex align-items-center flex-wrap gap-3 mb-1">
+    <h1 class="mb-0">📈 Uptime</h1>
+    <a class="btn btn-sm btn-outline-secondary ms-auto" href="report">🗞️ Weekly report</a>
+</div>
 <p class="text-muted mb-4">Probed every 30 seconds; history survives restarts. Last 30 days per service.</p>
 
 @if (_services.Count == 0)

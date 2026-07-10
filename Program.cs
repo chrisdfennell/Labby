@@ -125,6 +125,15 @@ builder.Services.AddHttpClient(UpdateService.HttpClientName, client => client.Ti
 builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddSingleton<DigestService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DigestService>());
+builder.Services.AddHttpClient(WeatherAlertMonitor.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Labby/1.0 (github.com/chrisdfennell/Labby)"); // NWS requires a UA
+});
+builder.Services.AddSingleton<WeatherAlertMonitor>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<WeatherAlertMonitor>());
+builder.Services.AddSingleton<PresenceMonitor>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PresenceMonitor>());
 builder.Services.AddHostedService<NasHealthMonitor>();
 
 // Behind a TLS-terminating reverse proxy (e.g. nginx-proxy-manager), honor its

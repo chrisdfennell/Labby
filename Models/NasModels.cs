@@ -120,12 +120,31 @@ public sealed record MinerStatus
     public string? Pool { get; init; }
     public string? Error { get; init; }
 
+    /// <summary>Network difficulty (absolute, parsed from the device's "133.9T" string).</summary>
+    public double? NetworkDifficulty { get; init; }
+
     public string HashRateDisplay =>
         HashRateMhs is not { } mhs ? "—"
         : mhs >= 1000 ? $"{mhs / 1000:0.##} GH/s"
         : mhs >= 1 ? $"{mhs:0.##} MH/s"
         : mhs >= 0.001 ? $"{mhs * 1000:0.##} KH/s"
         : $"{mhs * 1_000_000:0} H/s";
+
+    /// <summary>"1 in N" odds of this miner finding a block on any given day.</summary>
+    public double? OddsPerDay =>
+        NetworkDifficulty is { } diff && HashRateMhs is > 0 and { } mhs
+            ? diff * 4_294_967_296.0 / (mhs * 1_000_000 * 86_400)
+            : null;
+
+    public string OddsDisplay => OddsPerDay switch
+    {
+        null => "—",
+        >= 1e15 => $"1 in {OddsPerDay / 1e15:0.#} quadrillion/day",
+        >= 1e12 => $"1 in {OddsPerDay / 1e12:0.#} trillion/day",
+        >= 1e9 => $"1 in {OddsPerDay / 1e9:0.#} billion/day",
+        >= 1e6 => $"1 in {OddsPerDay / 1e6:0.#} million/day",
+        var odds => $"1 in {odds:N0}/day",
+    };
 }
 
 /// <summary>One logged weather sample, as stored in the history database.</summary>

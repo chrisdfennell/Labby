@@ -138,6 +138,24 @@ public sealed class MetricsStore(IOptions<HistoryOptions> options, IHostEnvironm
     public Task<IReadOnlyList<Point>> GetVolumeSeriesAsync(string label, DateTimeOffset from, CancellationToken ct = default) =>
         QuerySeriesAsync("SELECT at, used_percent FROM volume_history WHERE label = $key AND at >= $from ORDER BY at", label, from, ct);
 
+    /// <summary>Accepted-share growth for a miner across the window (first vs last sample).</summary>
+    public async Task<long?> GetMinerAcceptedDeltaAsync(string name, DateTimeOffset from, CancellationToken ct = default)
+    {
+        if (!File.Exists(_dbPath))
+            return null;
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(ConnectionString);
+        await conn.OpenAsync(ct);
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT (SELECT accepted FROM miner_history WHERE name = $n AND at >= $f ORDER BY at DESC LIMIT 1)
+                 - (SELECT accepted FROM miner_history WHERE name = $n AND at >= $f ORDER BY at LIMIT 1)
+            """;
+        cmd.Parameters.AddWithValue("$n", name);
+        cmd.Parameters.AddWithValue("$f", from.ToUnixTimeSeconds());
+        return await cmd.ExecuteScalarAsync(ct) is long delta ? delta : null;
+    }
+
     public async Task<IReadOnlyList<string>> GetVolumeLabelsAsync(CancellationToken ct = default)
     {
         var labels = new List<string>();

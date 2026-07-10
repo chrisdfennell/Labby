@@ -1,0 +1,160 @@
+@page "/report"
+@rendermode InteractiveServer
+@using Microsoft.Extensions.Options
+@inject ServiceHistoryStore ServiceHistory
+@inject MetricsStore Metrics
+@inject MediaHub Media
+@inject AlertNotifier Alerts
+@inject IOptions<DashboardOptions> Dashboard
+
+<PageTitle>Labby — Weekly report</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">🗞️ Your lab this week</h1>
+    <button class="btn btn-sm btn-outline-primary ms-auto" disabled="@(!Alerts.IsEnabled || _sending)"
+            @onclick="SendAsync">@(_sending ? "sending…" : _sent ? "sent ✓" : "📨 Send as alert")</button>
+</div>
+
+@if (_loading)
+{
+    <p class="text-muted">Crunching seven days of history…</p>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">📈 Uptime league (7 days)</div>
+                <div class="card-body p-0">
+                    <table class="table table-sm table-striped mb-0">
+                        <tbody>
+                            @foreach (var (service, pct) in _uptimeLeague)
+                            {
+                                <tr>
+                                    <td>@service</td>
+                                    <td class="text-end @(pct >= 99 ? "state-up" : pct >= 90 ? "state-warn" : "state-down")">@pct.ToString("0.##")%</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">🧾 The numbers</div>
+                <div class="card-body">
+                    <div>🔴 Outages: <strong>@_outageCount</strong>@(_outageCount > 0 ? $" ({Format.ShortDuration(_outageTotal)} total downtime)" : " — clean week!")</div>
+                    @foreach (var (label, delta, current) in _volumeGrowth)
+                    {
+                        <div>💾 @label: <strong>@current.ToString("0.#")%</strong> used (@(delta >= 0 ? "+" : "")@delta.ToString("0.##")% this week)</div>
+                    }
+                    @if (_speedAvg is { } avg)
+                    {
+                        <div>📶 Internet: avg <strong>@avg.ToString("0")</strong> Mbps (low @_speedMin?.ToString("0"), high @_speedMax?.ToString("0"))</div>
+                    }
+                    @if (_playsWeek is { } plays)
+                    {
+                        <div>🎬 Plex plays: <strong>@plays</strong> this week</div>
+                    }
+                    @foreach (var (miner, shares) in _minerShares)
+                    {
+                        <div>⛏️ @miner: <strong>@shares?.ToString("N0")</strong> shares accepted</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _sending;
+    private bool _sent;
+    private List<(string Service, double Pct)> _uptimeLeague = [];
+    private int _outageCount;
+    private TimeSpan _outageTotal;
+    private List<(string Label, double Delta, double Current)> _volumeGrowth = [];
+    private double? _speedAvg, _speedMin, _speedMax;
+    private long? _playsWeek;
+    private List<(string Miner, long? Shares)> _minerShares = [];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await LoadAsync();
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private async Task LoadAsync()
+    {
+        var weekAgo = DateTimeOffset.Now.AddDays(-7);
+
+        var uptimes = await ServiceHistory.GetUptimesAsync();
+        _uptimeLeague = uptimes.Values
+            .Where(u => u.Percent7d is not null)
+            .Select(u => (u.Service, u.Percent7d!.Value))
+            .OrderByDescending(u => u.Item2)
+            .ToList();
+
+        var outages = (await ServiceHistory.GetRecentOutagesAsync(100)).Where(o => o.Started >= weekAgo).ToList();
+        _outageCount = outages.Count;
+        _outageTotal = TimeSpan.FromSeconds(outages.Sum(o => ((o.Ended ?? DateTimeOffset.Now) - o.Started).TotalSeconds));
+
+        foreach (var label in await Metrics.GetVolumeLabelsAsync())
+        {
+            var series = await Metrics.GetVolumeSeriesAsync(label, weekAgo);
+            var values = series.Select(p => p.Value).OfType<double>().ToList();
+            if (values.Count >= 2)
+                _volumeGrowth.Add((label, values[^1] - values[0], values[^1]));
+        }
+
+        var tests = await Metrics.GetSpeedtestsAsync(weekAgo);
+        if (tests.Count > 0)
+        {
+            _speedAvg = tests.Average(t => t.DownMbps);
+            _speedMin = tests.Min(t => t.DownMbps);
+            _speedMax = tests.Max(t => t.DownMbps);
+        }
+
+        if (Media.TautulliConfigured)
+        {
+            try
+            {
+                var stats = await Media.GetWatchStatsAsync();
+                if (stats.Error is null && stats.Days.Count > 0)
+                {
+                    // Daily series covers 30 days; the last 7 entries are this week.
+                    _playsWeek = (long)(stats.TvPlays.TakeLast(7).Sum(v => v ?? 0) + stats.MoviePlays.TakeLast(7).Sum(v => v ?? 0));
+                }
+            }
+            catch (Exception) { /* the media card reports its own errors */ }
+        }
+
+        foreach (var miner in Dashboard.Value.Miners)
+            _minerShares.Add((miner.Name, await Metrics.GetMinerAcceptedDeltaAsync(miner.Name, weekAgo)));
+    }
+
+    private async Task SendAsync()
+    {
+        _sending = true;
+        try
+        {
+            var top = _uptimeLeague.Take(3).Select(u => $"{u.Service} {u.Pct:0.#}%");
+            var text = $"🗞️ Lab week in review: {_outageCount} outage(s)"
+                + (_outageCount > 0 ? $" ({Format.ShortDuration(_outageTotal)} down)" : "")
+                + $". Uptime leaders: {string.Join(", ", top)}."
+                + (_speedAvg is { } avg ? $" Internet avg {avg:0} Mbps." : "")
+                + (_playsWeek is { } plays ? $" {plays} Plex plays." : "")
+                + string.Concat(_volumeGrowth.Select(v => $" {v.Label} {(v.Delta >= 0 ? "+" : "")}{v.Delta:0.##}% → {v.Current:0.#}%."));
+            await Alerts.SendAsync(text);
+            _sent = true;
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+}

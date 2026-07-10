@@ -96,6 +96,7 @@ public sealed class MinerClient(IHttpClientFactory httpFactory, IOptions<Dashboa
                 Uptime = Num(stats, "uptimeSeconds") is { } up ? TimeSpan.FromSeconds(up) : null,
                 RssiDbm = Num(identity, "rssi"),
                 Pool = Str(stratum, "url"),
+                NetworkDifficulty = ParseSuffixed(Str(stats, "networkDiff")),
             };
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -112,6 +113,23 @@ public sealed class MinerClient(IHttpClientFactory httpFactory, IOptions<Dashboa
                 Error = ex is TaskCanceledException ? "timed out" : ex.GetBaseException().Message,
             };
         }
+    }
+
+    /// <summary>Parses NMMiner's suffixed numbers ("133.9T", "0.0020").</summary>
+    private static double? ParseSuffixed(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        value = value.Trim();
+        var multiplier = char.ToUpperInvariant(value[^1]) switch
+        {
+            'K' => 1e3, 'M' => 1e6, 'G' => 1e9, 'T' => 1e12, 'P' => 1e15, 'E' => 1e18,
+            _ => 1.0,
+        };
+        var digits = multiplier > 1 ? value[..^1] : value;
+        return double.TryParse(digits, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? parsed * multiplier
+            : null;
     }
 
     private static string? Str(JsonElement e, string prop) =>
