@@ -53,6 +53,16 @@ public sealed class TerminalOptions
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
 }
 
+public sealed class OsintOptions
+{
+    public const string SectionName = "Osint";
+
+    /// <summary>Browser-reachable URL of the OSINT Hub instance (iframe src, so it must resolve from the client).</summary>
+    public string Url { get; set; } = "";
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
+}
+
 /// <summary>Media-stack integrations shown on the Media page. Each source is optional.</summary>
 public sealed class MediaOptions
 {

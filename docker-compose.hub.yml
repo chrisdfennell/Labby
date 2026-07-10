@@ -37,6 +37,7 @@ services:
       AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
       Kontainr__Url: ${KONTAINR_URL:-}
       Terminal__Url: ${TERMINAL_URL:-}
+      Osint__Url: ${OSINT_URL:-}
       Media__Plex__Url: ${PLEX_BASE_URL:-}
       Media__Plex__ApiKey: ${PLEX_TOKEN:-}
       Media__Prowlarr__Url: ${PROWLARR_BASE_URL:-}

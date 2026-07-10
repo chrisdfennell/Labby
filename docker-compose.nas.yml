@@ -40,6 +40,8 @@ services:
       Kontainr__Url: ${KONTAINR_URL:-}
       # Web terminal embed (also browser-loaded); leave empty to hide the Terminal page.
       Terminal__Url: ${TERMINAL_URL:-}
+      # OSINT Hub embed (also browser-loaded); leave empty to hide the OSINT page.
+      Osint__Url: ${OSINT_URL:-}
       # Media page integrations — all optional.
       Media__Plex__Url: ${PLEX_BASE_URL:-}
       Media__Plex__ApiKey: ${PLEX_TOKEN:-}

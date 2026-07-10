@@ -1,0 +1,31 @@
+@page "/osint"
+@using Microsoft.Extensions.Options
+@inject IOptions<OsintOptions> Config
+
+<PageTitle>Labby — OSINT</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">🛰️ OSINT</h1>
+    @if (Config.Value.IsConfigured)
+    {
+        <a class="btn btn-sm btn-outline-secondary ms-auto" href="@Config.Value.Url" target="_blank" rel="noreferrer">
+            Open in new tab ↗
+        </a>
+    }
+</div>
+
+@if (!Config.Value.IsConfigured)
+{
+    <div class="alert alert-warning">
+        No OSINT Hub configured — set <code>Osint:Url</code> (env <code>OSINT_URL</code>) to a browser-reachable
+        <a href="https://github.com/chrisdfennell/OSINT" target="_blank" rel="noreferrer">OSINT Hub</a> instance,
+        e.g. <code>http://fennell-nas:3000</code>.
+    </div>
+}
+else
+{
+    <div class="kontainr-frame-wrap">
+        <iframe src="@Config.Value.Url" title="OSINT Hub" class="kontainr-frame"
+                allow="geolocation; fullscreen"></iframe>
+    </div>
+}
