@@ -135,6 +135,25 @@ public sealed class MetricsStore(IOptions<HistoryOptions> options, IHostEnvironm
     public Task<IReadOnlyList<Point>> GetPingSeriesAsync(string host, DateTimeOffset from, CancellationToken ct = default) =>
         QuerySeriesAsync("SELECT at, rtt_ms FROM ping_history WHERE host = $key AND at >= $from ORDER BY at", host, from, ct);
 
+    public Task<IReadOnlyList<Point>> GetVolumeSeriesAsync(string label, DateTimeOffset from, CancellationToken ct = default) =>
+        QuerySeriesAsync("SELECT at, used_percent FROM volume_history WHERE label = $key AND at >= $from ORDER BY at", label, from, ct);
+
+    public async Task<IReadOnlyList<string>> GetVolumeLabelsAsync(CancellationToken ct = default)
+    {
+        var labels = new List<string>();
+        if (!File.Exists(_dbPath))
+            return labels;
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(ConnectionString);
+        await conn.OpenAsync(ct);
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT DISTINCT label FROM volume_history ORDER BY label";
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            labels.Add(reader.GetString(0));
+        return labels;
+    }
+
     public async Task<IReadOnlyList<SpeedtestResult>> GetSpeedtestsAsync(DateTimeOffset from, CancellationToken ct = default)
     {
         var results = new List<SpeedtestResult>();

@@ -1,0 +1,153 @@
+@page "/trends"
+@rendermode InteractiveServer
+@using Microsoft.Extensions.Options
+@inject MetricsStore Metrics
+@inject IOptions<NetworkOptions> Network
+@inject IOptions<DashboardOptions> Dashboard
+@implements IDisposable
+
+<PageTitle>Labby — Trends</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">📉 Trends</h1>
+    <select class="form-select form-select-sm trend-select ms-auto" value="@_metric" @onchange="OnMetricChangedAsync">
+        @foreach (var (key, label) in _metrics)
+        {
+            <option value="@key">@label</option>
+        }
+    </select>
+    <div class="chart-range">
+        @foreach (var (hours, label) in Ranges)
+        {
+            <button class="btn btn-outline-primary @(_rangeHours == hours ? "active" : "")"
+                    @onclick="() => SetRangeAsync(hours)">@label</button>
+        }
+    </div>
+</div>
+
+@if (_times.Count < 2)
+{
+    <div class="alert alert-secondary">
+        Not enough samples for this metric yet — history accumulates while Labby runs (35-day retention).
+    </div>
+}
+else
+{
+    <LineChart Title="@_chartTitle" Unit="@_unit" TickFormat="@_tickFormat" WideRange="_rangeHours > 48"
+               Times="_times" Series="_series" />
+}
+
+@code {
+    private static readonly (int Hours, string Label)[] Ranges = [(24, "24h"), (168, "7d"), (720, "30d")];
+
+    private List<(string Key, string Label)> _metrics = [];
+    private string _metric = "nas-usage";
+    private int _rangeHours = 24;
+    private string _chartTitle = "";
+    private string _unit = "";
+    private string _tickFormat = "0";
+    private IReadOnlyList<DateTimeOffset> _times = [];
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _series = [];
+    private Timer? _refreshTimer;
+
+    protected override void OnInitialized()
+    {
+        _metrics =
+        [
+            ("nas-usage", "NAS CPU & RAM (%)"),
+            ("nas-temps", "NAS temperatures (°C)"),
+            ("speedtest", "Internet speed (Mbps)"),
+            .. Network.Value.PingHosts.Select(h => ($"ping:{h.Name}", $"Ping: {h.Name} (ms)")),
+            .. Dashboard.Value.Miners.Select(m => ($"miner:{m.Name}", $"Hashrate: {m.Name} (KH/s)")),
+        ];
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        // Volume labels come from the database, so they load after render.
+        foreach (var label in await Metrics.GetVolumeLabelsAsync())
+            _metrics.Add(($"volume:{label}", $"Volume used: {label} (%)"));
+        await LoadAsync();
+        StateHasChanged();
+        _refreshTimer = new Timer(_ => _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(120), TimeSpan.FromSeconds(120));
+    }
+
+    private async Task OnMetricChangedAsync(ChangeEventArgs e)
+    {
+        _metric = e.Value?.ToString() ?? _metric;
+        await LoadAsync();
+    }
+
+    private async Task SetRangeAsync(int hours)
+    {
+        _rangeHours = hours;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var from = DateTimeOffset.Now.AddHours(-_rangeHours);
+        _chartTitle = _metrics.FirstOrDefault(m => m.Key == _metric).Label ?? _metric;
+        switch (_metric)
+        {
+            case "nas-usage":
+                var cpu = MetricsStore.Downsample(await Metrics.GetNasSeriesAsync("cpu", from));
+                var ram = MetricsStore.Downsample(await Metrics.GetNasSeriesAsync("ram", from));
+                Apply(cpu, [("CPU", Values(cpu)), ("RAM", Aligned(cpu, ram))], "%", "0");
+                break;
+            case "nas-temps":
+                var cpuTemp = MetricsStore.Downsample(await Metrics.GetNasSeriesAsync("cpu_temp", from));
+                var sysTemp = MetricsStore.Downsample(await Metrics.GetNasSeriesAsync("sys_temp", from));
+                Apply(cpuTemp, [("CPU", Values(cpuTemp)), ("System", Aligned(cpuTemp, sysTemp))], "°C", "0");
+                break;
+            case "speedtest":
+                var tests = await Metrics.GetSpeedtestsAsync(from);
+                _times = tests.Select(t => t.At).ToList();
+                _series =
+                [
+                    ("Down", tests.Select(t => (double?)t.DownMbps).ToList()),
+                    ("Up", tests.Select(t => (double?)t.UpMbps).ToList()),
+                ];
+                (_unit, _tickFormat) = (" Mbps", "0");
+                break;
+            case var m when m.StartsWith("ping:"):
+                var ping = MetricsStore.Downsample(await Metrics.GetPingSeriesAsync(m[5..], from));
+                Apply(ping, [("RTT", Values(ping))], " ms", "0");
+                break;
+            case var m when m.StartsWith("miner:"):
+                var rate = MetricsStore.Downsample(await Metrics.GetMinerSeriesAsync(m[6..], from));
+                Apply(rate, [("Hashrate", rate.Select(p => p.Value * 1000).ToList())], " KH/s", "0.#");
+                break;
+            case var m when m.StartsWith("volume:"):
+                var vol = MetricsStore.Downsample(await Metrics.GetVolumeSeriesAsync(m[7..], from));
+                Apply(vol, [("Used", Values(vol))], "%", "0.#");
+                break;
+        }
+    }
+
+    private void Apply(IReadOnlyList<MetricsStore.Point> reference,
+        (string, IReadOnlyList<double?>)[] series, string unit, string tickFormat)
+    {
+        _times = reference.Select(p => p.At).ToList();
+        _series = series;
+        _unit = unit;
+        _tickFormat = tickFormat;
+    }
+
+    private static IReadOnlyList<double?> Values(IReadOnlyList<MetricsStore.Point> points) =>
+        points.Select(p => p.Value).ToList();
+
+    private static IReadOnlyList<double?> Aligned(IReadOnlyList<MetricsStore.Point> reference, IReadOnlyList<MetricsStore.Point> series)
+    {
+        var byTime = series.ToDictionary(p => p.At, p => p.Value);
+        return reference.Select(p => byTime.GetValueOrDefault(p.At)).ToList();
+    }
+
+    public void Dispose() => _refreshTimer?.Dispose();
+}

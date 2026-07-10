@@ -32,10 +32,17 @@
 }
 else
 {
-    @if (Config.Value.SpeedtestHours > 0)
-    {
-        <h4 class="mb-3">Internet speed</h4>
-        <div class="row g-3 mb-4">
+    <div class="d-flex align-items-center gap-3 mb-3">
+        <h4 class="mb-0">Internet speed</h4>
+        <button class="btn btn-sm btn-outline-primary" disabled="@(Speedtest.IsRunning || _testRunning)" @onclick="RunSpeedtestAsync">
+            @(_testRunning ? "testing… (~30s)" : "▶ Run test now")
+        </button>
+        @if (_testError is not null)
+        {
+            <span class="text-danger small">@_testError</span>
+        }
+    </div>
+    <div class="row g-3 mb-4">
             <div class="col-6 col-md-3">
                 <div class="card h-100"><div class="card-body text-center">
                     <div class="text-muted small">Download</div>
@@ -68,7 +75,6 @@ else
                 </div>
             }
         </div>
-    }
 
     @if (Config.Value.PingHosts.Count > 0)
     {
@@ -149,15 +155,31 @@ else
             _pingSeries[host.Name] = [("RTT", points.Select(p => p.Value).ToList())];
         }
 
-        if (Config.Value.SpeedtestHours > 0)
+        var tests = await Metrics.GetSpeedtestsAsync(DateTimeOffset.Now.AddDays(-30));
+        _speedTimes = tests.Select(t => t.At).ToList();
+        _speedSeries =
+        [
+            ("Down", tests.Select(t => (double?)t.DownMbps).ToList()),
+            ("Up", tests.Select(t => (double?)t.UpMbps).ToList()),
+        ];
+    }
+
+    private bool _testRunning;
+    private string? _testError;
+
+    private async Task RunSpeedtestAsync()
+    {
+        _testRunning = true;
+        _testError = null;
+        StateHasChanged();
+        try
         {
-            var tests = await Metrics.GetSpeedtestsAsync(DateTimeOffset.Now.AddDays(-30));
-            _speedTimes = tests.Select(t => t.At).ToList();
-            _speedSeries =
-            [
-                ("Down", tests.Select(t => (double?)t.DownMbps).ToList()),
-                ("Up", tests.Select(t => (double?)t.UpMbps).ToList()),
-            ];
+            _testError = await Speedtest.TriggerAsync();
+            await LoadAsync();
+        }
+        finally
+        {
+            _testRunning = false;
         }
     }
 

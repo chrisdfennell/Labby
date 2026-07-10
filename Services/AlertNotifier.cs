@@ -13,6 +13,10 @@ public sealed class AlertNotifier(IHttpClientFactory httpFactory, IOptions<Alert
 {
     public const string HttpClientName = "alerts";
     private const string PushoverEndpoint = "https://api.pushover.net/1/messages.json";
+    private const string SnoozeKvKey = "alert-snooze-until";
+
+    private DateTimeOffset? _snoozedUntil;
+    private bool _snoozeLoaded;
 
     public bool IsEnabled => options.Value.IsEnabled;
 
@@ -21,11 +25,44 @@ public sealed class AlertNotifier(IHttpClientFactory httpFactory, IOptions<Alert
         if (!IsEnabled)
             return;
 
+        if (await GetSnoozedUntilAsync(ct) is { } until && until > DateTimeOffset.Now)
+        {
+            // Maintenance window: keep the paper trail, skip the channels.
+            await metrics.WriteAlertAsync(DateTimeOffset.Now, $"🔇 (snoozed) {message}", ct);
+            return;
+        }
+
         await metrics.WriteAlertAsync(DateTimeOffset.Now, message, ct);
         if (!string.IsNullOrWhiteSpace(options.Value.WebhookUrl))
             await SendWebhookAsync(message, ct);
         if (options.Value.PushoverEnabled)
             await SendPushoverAsync(message, ct);
+    }
+
+    /// <summary>Silence alert channels for a maintenance window (persists across restarts).</summary>
+    public async Task SnoozeAsync(TimeSpan duration, CancellationToken ct = default)
+    {
+        _snoozedUntil = DateTimeOffset.Now.Add(duration);
+        _snoozeLoaded = true;
+        await metrics.SetValueAsync(SnoozeKvKey, _snoozedUntil.Value.ToUnixTimeSeconds().ToString(), ct);
+    }
+
+    public async Task ResumeAsync(CancellationToken ct = default)
+    {
+        _snoozedUntil = null;
+        _snoozeLoaded = true;
+        await metrics.SetValueAsync(SnoozeKvKey, "0", ct);
+    }
+
+    public async Task<DateTimeOffset?> GetSnoozedUntilAsync(CancellationToken ct = default)
+    {
+        if (!_snoozeLoaded)
+        {
+            _snoozeLoaded = true;
+            if (await metrics.GetValueAsync(SnoozeKvKey, ct) is { } raw && long.TryParse(raw, out var unix) && unix > 0)
+                _snoozedUntil = DateTimeOffset.FromUnixTimeSeconds(unix).ToLocalTime();
+        }
+        return _snoozedUntil is { } until && until > DateTimeOffset.Now ? until : null;
     }
 
     private async Task SendWebhookAsync(string message, CancellationToken ct)

@@ -9,6 +9,8 @@ public sealed record NowPlayingSnapshot
 
 public sealed record PlexSession
 {
+    /// <summary>Tautulli session key — used to terminate the stream.</summary>
+    public string SessionKey { get; init; } = "";
     public string User { get; init; } = "";
     public string Title { get; init; } = "";
     public string Player { get; init; } = "";

@@ -63,6 +63,73 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     public Task<WatchStatsSnapshot> GetWatchStatsAsync(CancellationToken ct = default) =>
         GetCachedAsync(_watchStats, CalendarTtl, FetchWatchStatsAsync, ct);
 
+    /// <summary>Stops a Plex stream via Tautulli.</summary>
+    public async Task TerminateSessionAsync(string sessionKey, CancellationToken ct = default)
+    {
+        var url = $"{_options.Tautulli.Url.TrimEnd('/')}/api/v2?apikey={Uri.EscapeDataString(_options.Tautulli.ApiKey)}" +
+                  $"&cmd=terminate_session&session_key={Uri.EscapeDataString(sessionKey)}" +
+                  $"&message={Uri.EscapeDataString("Stream stopped from Labby.")}";
+        using var doc = await GetJsonAsync(url, ct);
+        var result = doc.RootElement.GetProperty("response");
+        if (Str(result, "result") != "success")
+            throw new InvalidOperationException(Str(result, "message") is { Length: > 0 } m ? m : "Tautulli refused to terminate the session.");
+        _nowPlaying.At = DateTimeOffset.MinValue;
+    }
+
+    /// <summary>Sends a magnet/torrent link to qBittorrent or an NZB URL to NZBGet.</summary>
+    public async Task AddDownloadAsync(string link, string target, CancellationToken ct = default)
+    {
+        if (target == "qBittorrent")
+        {
+            var baseUrl = _options.Qbittorrent.Url.TrimEnd('/');
+            var http = httpFactory.CreateClient(HttpClientName);
+
+            async Task<HttpResponseMessage> ActAsync()
+            {
+                using var content = new FormUrlEncodedContent([new KeyValuePair<string, string>("urls", link)]);
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v2/torrents/add") { Content = content };
+                if (_qbitSid is { } sid)
+                    request.Headers.Add("Cookie", $"SID={sid}");
+                return await http.SendAsync(request, ct);
+            }
+
+            var response = await ActAsync();
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden && !string.IsNullOrEmpty(_options.Qbittorrent.Password))
+            {
+                response.Dispose();
+                await QbitLoginAsync(http, baseUrl, ct);
+                response = await ActAsync();
+            }
+            using (response)
+            {
+                response.EnsureSuccessStatusCode();
+            }
+        }
+        else
+        {
+            var baseUrl = _options.Nzbget.Url.TrimEnd('/');
+            var auth = string.IsNullOrEmpty(_options.Nzbget.Username)
+                ? ""
+                : $"/{Uri.EscapeDataString(_options.Nzbget.Username)}:{Uri.EscapeDataString(_options.Nzbget.Password)}";
+            var http = httpFactory.CreateClient(HttpClientName);
+            // append(NZBFilename, Content, Category, Priority, AddToTop, AddPaused, DupeKey, DupeScore, DupeMode)
+            // — Content accepts a URL, which NZBGet fetches itself.
+            using var content = JsonContent.Create(new
+            {
+                method = "append",
+                @params = new object[] { "", link, "", 0, false, false, "", 0, "SCORE" },
+            });
+            using var response = await http.PostAsync($"{baseUrl}{auth}/jsonrpc", content, ct);
+            response.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.TryGetProperty("result", out var result)
+                && result.ValueKind == JsonValueKind.Number && result.GetInt64() <= 0)
+                throw new InvalidOperationException("NZBGet rejected the link (is it a valid NZB URL?).");
+        }
+
+        _downloads.At = DateTimeOffset.MinValue;
+    }
+
     /// <summary>Searches Overseerr/Seerr for movies and shows.</summary>
     public async Task<IReadOnlyList<SearchResult>> SearchMediaAsync(string query, CancellationToken ct = default)
     {
@@ -261,6 +328,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
                 {
                     sessions.Add(new PlexSession
                     {
+                        SessionKey = Str(s, "session_key") is { Length: > 0 } key ? key : $"{Num(s, "session_key")}",
                         User = Str(s, "friendly_name") is { Length: > 0 } n ? n : Str(s, "user"),
                         Title = Str(s, "full_title"),
                         Player = Str(s, "player"),

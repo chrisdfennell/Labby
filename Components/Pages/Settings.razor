@@ -44,6 +44,21 @@
                         @onclick="SendTestAsync">
                     @(_testSending ? "sending…" : _testSent ? "sent ✓ — check your phone" : "🧪 Send test alert")
                 </button>
+                <hr class="my-2" />
+                @if (_snoozedUntil is { } until)
+                {
+                    <p class="small mb-2"><span class="state-warn">🔇 Snoozed until @until.ToString("MMM d · HH:mm")</span> — alerts are logged but not delivered.</p>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => ResumeAsync()">🔔 Resume alerts</button>
+                }
+                else
+                {
+                    <p class="text-muted small mb-2">Doing maintenance? Snooze deliveries (history still records everything):</p>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => SnoozeAsync(1)">1h</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => SnoozeAsync(4)">4h</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => SnoozeAsync(24)">24h</button>
+                    </div>
+                }
             </div>
         </div>
     </div>
@@ -147,6 +162,7 @@
     private bool _testSent;
     private readonly HashSet<string> _kioskSelection = ["", "media", "weather", "uptime"];
     private int _kioskSeconds = 20;
+    private DateTimeOffset? _snoozedUntil;
     private IReadOnlyList<MetricsStore.AlertRecord> _alerts = [];
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -155,6 +171,7 @@
             return;
         _theme = await Js.InvokeAsync<string>("labbyTheme.get");
         _alerts = await Metrics.GetAlertsAsync();
+        _snoozedUntil = await Alerts.GetSnoozedUntilAsync();
         StateHasChanged();
     }
 
@@ -176,6 +193,18 @@
         Js.InvokeVoidAsync("labbyKiosk.start",
             KioskPages.Select(p => p.Path).Where(_kioskSelection.Contains).ToArray(),
             Math.Max(5, _kioskSeconds)).AsTask();
+
+    private async Task SnoozeAsync(int hours)
+    {
+        await Alerts.SnoozeAsync(TimeSpan.FromHours(hours));
+        _snoozedUntil = await Alerts.GetSnoozedUntilAsync();
+    }
+
+    private async Task ResumeAsync()
+    {
+        await Alerts.ResumeAsync();
+        _snoozedUntil = null;
+    }
 
     private async Task SendTestAsync()
     {

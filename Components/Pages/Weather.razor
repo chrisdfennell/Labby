@@ -64,6 +64,54 @@ else
         </div>
     }
 
+    @if (_today is not null || _sun is not null)
+    {
+        <div class="row g-3 mb-3">
+            @if (_today is { } today)
+            {
+            <div class="col-6 col-md">
+                <div class="card h-100"><div class="card-body text-center py-2">
+                    <div class="text-muted small">Today high / low</div>
+                    <div class="fs-5 fw-semibold">@Deg(today.High) / @Deg(today.Low)</div>
+                </div></div>
+            </div>
+            <div class="col-6 col-md">
+                <div class="card h-100"><div class="card-body text-center py-2">
+                    <div class="text-muted small">Peak gust</div>
+                    <div class="fs-5 fw-semibold">@(today.PeakGust is { } g ? $"{g:0.#} mph" : "—") <span class="text-muted fs-6">@today.PeakGustDir</span></div>
+                </div></div>
+            </div>
+            <div class="col-6 col-md">
+                <div class="card h-100"><div class="card-body text-center py-2">
+                    <div class="text-muted small">Rain today</div>
+                    <div class="fs-5 fw-semibold">@Inches(today.Rain)</div>
+                </div></div>
+            </div>
+            <div class="col-6 col-md">
+                <div class="card h-100"><div class="card-body text-center py-2">
+                    <div class="text-muted small">Max UV</div>
+                    <div class="fs-5 fw-semibold">@(today.MaxUv?.ToString("0.#") ?? "—")</div>
+                </div></div>
+            </div>
+            <div class="col-6 col-md">
+                <div class="card h-100"><div class="card-body text-center py-2">
+                    <div class="text-muted small">Peak solar</div>
+                    <div class="fs-5 fw-semibold">@(today.MaxSolar is { } s ? $"{s:0} W/m²" : "—")</div>
+                </div></div>
+            </div>
+            }
+            @if (_sun is { Sunrise: not null, Sunset: not null } sun)
+            {
+                <div class="col-6 col-md">
+                    <div class="card h-100"><div class="card-body text-center py-2">
+                        <div class="text-muted small">🌅 @sun.Sunrise!.Value.ToString("HH:mm") · 🌇 @sun.Sunset!.Value.ToString("HH:mm")</div>
+                        <div class="fs-5 fw-semibold">@(sun.DayLength is { } len ? $"{(int)len.TotalHours}h {len.Minutes}m of light" : "—")</div>
+                    </div></div>
+                </div>
+            }
+        </div>
+    }
+
     <div class="d-flex align-items-center justify-content-between mt-4 mb-3">
         <h4 class="mb-0">History</h4>
         <div class="chart-range" role="group" aria-label="Time range">
@@ -83,41 +131,6 @@ else
     }
     else
     {
-        @if (_today is { } today)
-        {
-            <div class="row g-3 mb-3">
-                <div class="col-6 col-md">
-                    <div class="card h-100"><div class="card-body text-center py-2">
-                        <div class="text-muted small">Today high / low</div>
-                        <div class="fs-5 fw-semibold">@Deg(today.High) / @Deg(today.Low)</div>
-                    </div></div>
-                </div>
-                <div class="col-6 col-md">
-                    <div class="card h-100"><div class="card-body text-center py-2">
-                        <div class="text-muted small">Peak gust</div>
-                        <div class="fs-5 fw-semibold">@(today.PeakGust is { } g ? $"{g:0.#} mph" : "—") <span class="text-muted fs-6">@today.PeakGustDir</span></div>
-                    </div></div>
-                </div>
-                <div class="col-6 col-md">
-                    <div class="card h-100"><div class="card-body text-center py-2">
-                        <div class="text-muted small">Rain today</div>
-                        <div class="fs-5 fw-semibold">@Inches(today.Rain)</div>
-                    </div></div>
-                </div>
-                <div class="col-6 col-md">
-                    <div class="card h-100"><div class="card-body text-center py-2">
-                        <div class="text-muted small">Max UV</div>
-                        <div class="fs-5 fw-semibold">@(today.MaxUv?.ToString("0.#") ?? "—")</div>
-                    </div></div>
-                </div>
-                <div class="col-6 col-md">
-                    <div class="card h-100"><div class="card-body text-center py-2">
-                        <div class="text-muted small">Peak solar</div>
-                        <div class="fs-5 fw-semibold">@(today.MaxSolar is { } s ? $"{s:0} W/m²" : "—")</div>
-                    </div></div>
-                </div>
-            </div>
-        }
 
         <div class="row g-3">
             <div class="col-lg-6">
@@ -205,6 +218,7 @@ else
     private IReadOnlyList<double?> _windDirections = [];
     private IReadOnlyList<string?> _windLabels = [];
     private TodayStats? _today;
+    private SolarMath.SunTimes? _sun;
 
     private sealed record TodayStats(double? High, double? Low, double? PeakGust, string PeakGustDir, double? Rain, double? MaxUv, double? MaxSolar);
 
@@ -248,6 +262,8 @@ else
         _reading = await WeatherClient.GetCurrentAsync();
         if (_reading is null)
             _error = "No data returned from Ambient Weather — check your keys.";
+        if (_reading is { StationLat: { } lat, StationLon: { } lon })
+            _sun = SolarMath.For(DateOnly.FromDateTime(DateTime.Today), lat, lon, TimeZoneInfo.Local);
         await LoadHistoryAsync();
     }
 

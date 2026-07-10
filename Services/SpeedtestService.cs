@@ -17,8 +17,37 @@ public sealed class SpeedtestService(MetricsStore store, AlertNotifier alerts, I
 
     public bool IsEnabled => options.Value.SpeedtestHours > 0;
     public bool BinaryAvailable { get; private set; }
+    public bool IsRunning { get; private set; }
 
     public MetricsStore.SpeedtestResult? Latest { get; private set; }
+
+    /// <summary>Runs a test on demand; returns an error message or null on success.</summary>
+    public async Task<string?> TriggerAsync(CancellationToken ct = default)
+    {
+        if (IsRunning)
+            return "A test is already running.";
+        if (!File.Exists($"/usr/local/bin/{Binary}") && !File.Exists($"/usr/bin/{Binary}"))
+            return "librespeed-cli isn't available here (it ships in the Docker image).";
+        IsRunning = true;
+        try
+        {
+            await RunOnceAsync(ct);
+            return null;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "On-demand speedtest failed");
+            return ex.GetBaseException().Message;
+        }
+        finally
+        {
+            IsRunning = false;
+        }
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

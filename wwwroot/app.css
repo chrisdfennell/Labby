@@ -398,6 +398,16 @@ code {
     color: var(--lab-muted);
 }
 
+.trend-select {
+    width: auto;
+    max-width: 18rem;
+    background: var(--lab-panel-deep);
+    border-color: var(--lab-border);
+    color: var(--lab-text);
+    font-family: var(--lab-mono);
+    font-size: 0.85rem;
+}
+
 .chart-range {
     display: flex;
     gap: 0.4rem;
@@ -770,6 +780,24 @@ html.kiosk article.content {
             background: var(--lab-red);
             color: #2a0a12;
         }
+
+.dl-add-input {
+    flex: 1;
+    min-width: 14rem;
+    background: var(--lab-panel-deep);
+    border-color: var(--lab-border);
+    color: var(--lab-text);
+    font-family: var(--lab-mono);
+}
+
+.dl-add-target {
+    width: auto;
+    background: var(--lab-panel-deep);
+    border-color: var(--lab-border);
+    color: var(--lab-text);
+    font-family: var(--lab-mono);
+    font-size: 0.8rem;
+}
 
 .dl-toggle {
     background: none;

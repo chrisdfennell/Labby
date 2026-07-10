@@ -10,14 +10,15 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **Storage** (`/storage`) | NAS model/firmware/uptime, CPU/RAM, temperatures, volume usage bars with a "full in ≈N days" projection, 24h CPU/RAM/temperature charts, and per-disk SMART health |
 | **Files** (`/files`) | Browse QNAP shares, download/upload files, create folders, rename/move/delete, and generate signed 7-day share links that work without a login |
 | **Containers** (`/containers`) | Embedded [Kontainr](https://github.com/chrisdfennell/Kontainr) dashboard (full Docker management), plus a Container Station tab with per-container CPU/RAM, start/stop/restart, and a logs viewer (needs the docker.sock mount from the compose file) |
-| **Media** (`/media`) | Plex now-playing (via Tautulli), recently added (Plex), active downloads with speeds and pause/resume (qBittorrent + NZBGet), the Sonarr/Radarr download queue, upcoming episodes/movies, pending Overseerr requests with approve/decline, and 30-day watch statistics (plays chart, top shows/movies/users) — auto-refreshing every 15s |
+| **Media** (`/media`) | Plex now-playing (via Tautulli), recently added (Plex), active downloads with speeds and pause/resume (qBittorrent + NZBGet), the Sonarr/Radarr download queue, add-download-by-link (magnet/NZB), stop-stream buttons, upcoming episodes/movies, pending Overseerr requests with approve/decline, and 30-day watch statistics (plays chart, top shows/movies/users) — auto-refreshing every 15s |
 | **Uptime** (`/uptime`) | Status-page view of every dashboard service: uptime % (24h/7d), a 30-day daily bar strip, and an outage log with durations — history persisted to SQLite |
 | **Network** (`/network`) | Latency charts for pinged hosts (`Network:PingHosts`, 60s cadence, packet-loss %) and scheduled internet speed tests via bundled librespeed-cli (`Network:SpeedtestHours`, 0 = off; optional `MinDownloadMbps` slow-internet alert) |
 | **Terminal** (`/terminal`) | Embeds any web terminal (e.g. a web-SSH container) via `Terminal:Url` / env `TERMINAL_URL` — browser-loaded iframe, hidden when unset |
+| **Trends** (`/trends`) | Any stored metric charted over 24h/7d/30d: NAS CPU/RAM/temps, ping RTT, hashrate, speedtests, volume usage |
 | **Notes** (`/notes`) | Markdown notes/runbooks persisted to SQLite, with live preview |
 
 Everywhere: **Ctrl+K / Cmd+K** opens a command palette that jumps to any page, service, or quick link. Labby also ships a web-app manifest, so "Add to Home Screen" on a phone gets a proper icon and standalone window (full PWA install requires HTTPS — put Labby behind a reverse proxy with a certificate if you want that).
-| **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, today's high/low/peak-gust/rain/UV/solar tiles, and 24h/48h/7d history charts — temperature, wind (with direction arrows and "wind from" tooltips), humidity, barometer, rain, solar radiation, indoor vs outdoor — logged to SQLite every 5 minutes |
+| **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, today's high/low/peak-gust/rain/UV/solar and sunrise/sunset tiles, and 24h/48h/7d history charts — temperature, wind (with direction arrows and "wind from" tooltips), humidity, barometer, rain, solar radiation, indoor vs outdoor — logged to SQLite every 5 minutes |
 
 ## Setup
 
@@ -130,7 +131,7 @@ Labby posts a message whenever a dashboard service goes down or comes back. Two 
 }
 ```
 
-Discord (`discord.com/api/webhooks/…`) and Slack (`hooks.slack.com/…`) URLs get their native JSON payloads; any other URL — an [ntfy](https://ntfy.sh) topic, a generic webhook — receives the message as a plain-text POST. For [Pushover](https://pushover.net), create an application (any name/icon) to get the token, grab your user key from the dashboard, and set both — alerts arrive as push notifications titled "Labby". With Docker: `LABBY_ALERT_WEBHOOK`, `LABBY_PUSHOVER_TOKEN`, `LABBY_PUSHOVER_USER` in `.env`. Alerts fire on state *changes* only (🔴 down with the error, 🟢 recovery with how long it was out).
+Discord (`discord.com/api/webhooks/…`) and Slack (`hooks.slack.com/…`) URLs get their native JSON payloads; any other URL — an [ntfy](https://ntfy.sh) topic, a generic webhook — receives the message as a plain-text POST. For [Pushover](https://pushover.net), create an application (any name/icon) to get the token, grab your user key from the dashboard, and set both — alerts arrive as push notifications titled "Labby". With Docker: `LABBY_ALERT_WEBHOOK`, `LABBY_PUSHOVER_TOKEN`, `LABBY_PUSHOVER_USER` in `.env`. Alerts can be snoozed for maintenance windows from Settings (history still records them). They fire on state *changes* only (🔴 down with the error, 🟢 recovery with how long it was out).
 
 With a webhook set and QNAP configured, Labby also checks **NAS health** every 15 minutes and alerts once when a condition appears and once when it clears: a disk's SMART health leaving "Good", a volume passing `Alerts:VolumeFullPercent` (default 90), or the CPU passing `Alerts:CpuTempC` (default 85°C; set either to 0 to disable).
 

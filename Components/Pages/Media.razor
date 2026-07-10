@@ -95,12 +95,30 @@ else
                         }
                         else
                         {
+                            @if (_killError is not null)
+                            {
+                                <div class="text-danger small">@_killError</div>
+                            }
                             @foreach (var s in _nowPlaying.Sessions)
                             {
                                 <div class="media-session">
                                     <div class="d-flex justify-content-between align-items-baseline gap-2">
                                         <span class="fw-semibold text-truncate">@(s.State == "paused" ? "⏸" : "▶") @s.Title</span>
-                                        <span class="badge bg-secondary">@s.Decision</span>
+                                        <span class="text-nowrap">
+                                            <span class="badge bg-secondary">@s.Decision</span>
+                                            @if (s.SessionKey is { Length: > 0 })
+                                            {
+                                                @if (_confirmKill == s.SessionKey)
+                                                {
+                                                    <button type="button" class="req-btn decline" @onclick="() => KillStreamAsync(s)">confirm stop</button>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="req-btn decline" title="Stop this stream"
+                                                            @onclick="() => _confirmKill = s.SessionKey">✗</button>
+                                                }
+                                            }
+                                        </span>
                                     </div>
                                     <div class="text-muted small">@s.User · @s.Player</div>
                                     <div class="progress media-progress" role="progressbar" aria-label="Playback progress"
@@ -143,6 +161,21 @@ else
                             @if (_downloads.Items.Count == 0 && _downloads.QbitError is null && _downloads.NzbgetError is null)
                             {
                                 <span class="text-muted">No active downloads.</span>
+                            }
+                            <div class="d-flex flex-wrap gap-2 mb-2 mt-1">
+                                <input class="form-control form-control-sm dl-add-input" placeholder="Paste magnet / torrent / NZB link…"
+                                       @bind="_addLink" @bind:event="oninput" />
+                                <select class="form-select form-select-sm dl-add-target" @bind="_addTarget">
+                                    <option value="auto">auto</option>
+                                    <option>qBittorrent</option>
+                                    <option>NZBGet</option>
+                                </select>
+                                <button class="btn btn-sm btn-outline-primary" disabled="@(_adding || string.IsNullOrWhiteSpace(_addLink))"
+                                        @onclick="AddDownloadAsync">@(_adding ? "adding…" : _added ? "added ✓" : "add")</button>
+                            </div>
+                            @if (_addError is not null)
+                            {
+                                <div class="text-danger small">@_addError</div>
                             }
                             @if (_downloadActionError is not null)
                             {
@@ -505,6 +538,13 @@ else
     private string? _searchError;
     private IReadOnlyList<SearchResult>? _searchResults;
     private readonly HashSet<long> _requested = [];
+    private string? _confirmKill;
+    private string? _killError;
+    private string _addLink = "";
+    private string _addTarget = "auto";
+    private bool _adding;
+    private bool _added;
+    private string? _addError;
     private Timer? _refreshTimer;
 
     // Data loads after first render so prerendering never blocks on the media stack.
@@ -584,6 +624,52 @@ else
         finally
         {
             _downloadActionBusy = false;
+        }
+    }
+
+    private async Task KillStreamAsync(PlexSession session)
+    {
+        _confirmKill = null;
+        _killError = null;
+        try
+        {
+            await Hub.TerminateSessionAsync(session.SessionKey);
+            _nowPlaying = await Hub.GetNowPlayingAsync();
+        }
+        catch (Exception ex)
+        {
+            _killError = ex.GetBaseException().Message;
+        }
+    }
+
+    private async Task AddDownloadAsync()
+    {
+        _adding = true;
+        _added = false;
+        _addError = null;
+        var link = _addLink.Trim();
+        var target = _addTarget switch
+        {
+            "auto" => link.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase)
+                      || link.Contains(".torrent", StringComparison.OrdinalIgnoreCase)
+                ? "qBittorrent"
+                : "NZBGet",
+            var t => t,
+        };
+        try
+        {
+            await Hub.AddDownloadAsync(link, target);
+            _added = true;
+            _addLink = "";
+            _downloads = await Hub.GetDownloadsAsync();
+        }
+        catch (Exception ex)
+        {
+            _addError = $"{target}: {ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            _adding = false;
         }
     }
 
