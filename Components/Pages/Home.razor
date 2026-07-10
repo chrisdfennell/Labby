@@ -7,6 +7,7 @@
 @inject MediaHub Media
 @inject WakeOnLanService Wol
 @inject MinerClient Miners
+@inject MetricsStore Metrics
 @inject Microsoft.Extensions.Options.IOptions<DashboardOptions> Dashboard
 @implements IDisposable
 
@@ -212,6 +213,12 @@
         {
             <div class="col-12"><span class="text-muted">Loading…</span></div>
         }
+        @if (_minerTimes.Count >= 2)
+        {
+            <div class="col-lg-6">
+                <LineChart Title="⛏️ Hashrate (24h, KH/s)" Unit=" KH/s" Times="_minerTimes" Series="_minerSeries" />
+            </div>
+        }
     </div>
 }
 
@@ -251,10 +258,30 @@
     // Cards load independently so one failing doesn't blank the others.
     private Task LoadCardsAsync() => Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync());
 
+    private IReadOnlyList<DateTimeOffset> _minerTimes = [];
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _minerSeries = [];
+
     private async Task LoadMinersAsync()
     {
-        if (Miners.AnyConfigured)
-            _miners = await Miners.GetStatusAsync();
+        if (!Miners.AnyConfigured)
+            return;
+        _miners = await Miners.GetStatusAsync();
+
+        // Hashrate history for up to two miners (the chart palette has two slots).
+        var series = new List<(string, IReadOnlyList<double?>)>();
+        IReadOnlyList<DateTimeOffset> times = [];
+        foreach (var miner in Dashboard.Value.Miners.Take(2))
+        {
+            var points = MetricsStore.Downsample(await Metrics.GetMinerSeriesAsync(miner.Name, DateTimeOffset.Now.AddHours(-24)));
+            if (points.Count < 2)
+                continue;
+            if (times.Count == 0)
+                times = points.Select(p => p.At).ToList();
+            // Device reports MH/s; the chart shows KH/s.
+            series.Add((miner.Name, points.Take(times.Count).Select(p => p.Value * 1000).ToList()));
+        }
+        _minerTimes = times;
+        _minerSeries = series;
     }
 
     private async Task LoadMediaAsync()

@@ -1,0 +1,153 @@
+@page "/network"
+@rendermode InteractiveServer
+@using Microsoft.Extensions.Options
+@inject PingMonitor Pings
+@inject SpeedtestService Speedtest
+@inject MetricsStore Metrics
+@inject IOptions<NetworkOptions> Config
+@implements IDisposable
+
+<PageTitle>Labby — Network</PageTitle>
+
+<h1 class="mb-4">🌐 Network</h1>
+
+@if (!Config.Value.AnyConfigured)
+{
+    <div class="alert alert-secondary">
+        Nothing configured yet — add ping targets under <code>Network:PingHosts</code> and/or enable
+        scheduled speed tests with <code>Network:SpeedtestHours</code> in <code>appsettings.json</code>.
+    </div>
+}
+else
+{
+    @if (Config.Value.SpeedtestHours > 0)
+    {
+        <h4 class="mb-3">Internet speed</h4>
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-md-3">
+                <div class="card h-100"><div class="card-body text-center">
+                    <div class="text-muted small">Download</div>
+                    <div class="fs-4 fw-semibold">@(Speedtest.Latest is { } l ? $"{l.DownMbps:0.#}" : "—") <span class="fs-6 text-muted">Mbps</span></div>
+                </div></div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card h-100"><div class="card-body text-center">
+                    <div class="text-muted small">Upload</div>
+                    <div class="fs-4 fw-semibold">@(Speedtest.Latest is { } u ? $"{u.UpMbps:0.#}" : "—") <span class="fs-6 text-muted">Mbps</span></div>
+                </div></div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card h-100"><div class="card-body text-center">
+                    <div class="text-muted small">Ping</div>
+                    <div class="fs-4 fw-semibold">@(Speedtest.Latest is { } p ? $"{p.PingMs:0}" : "—") <span class="fs-6 text-muted">ms</span></div>
+                </div></div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card h-100"><div class="card-body text-center">
+                    <div class="text-muted small">Last test</div>
+                    <div class="fs-6 fw-semibold mt-2">@(Speedtest.Latest is { } t ? t.At.ToString("MMM d · HH:mm") : "not yet run")</div>
+                </div></div>
+            </div>
+            @if (_speedTimes.Count >= 2)
+            {
+                <div class="col-12">
+                    <LineChart Title="📶 Speed history (30 days, Mbps)" Unit=" Mbps" TickFormat="0" WideRange="true"
+                               Times="_speedTimes" Series="_speedSeries" />
+                </div>
+            }
+        </div>
+    }
+
+    @if (Config.Value.PingHosts.Count > 0)
+    {
+        <h4 class="mb-3">Latency</h4>
+        <div class="row g-3">
+            @foreach (var host in Config.Value.PingHosts)
+            {
+                var latest = Pings.Latest.GetValueOrDefault(host.Name);
+                <div class="col-lg-6">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between">
+                            <span>@host.Name <span class="text-muted">(@host.Host)</span></span>
+                            <span>
+                                @if (latest is { } rtt)
+                                {
+                                    <span class="state-up">@rtt.ToString("0") ms</span>
+                                }
+                                else if (Pings.Latest.ContainsKey(host.Name))
+                                {
+                                    <span class="state-down">no reply</span>
+                                }
+                                @if (_pingLoss.TryGetValue(host.Name, out var loss) && loss > 0)
+                                {
+                                    <span class="state-warn"> · @loss.ToString("0.#")% loss</span>
+                                }
+                            </span>
+                        </div>
+                        <div class="card-body p-2">
+                            @if (_pingTimes.TryGetValue(host.Name, out var times) && times.Count >= 2)
+                            {
+                                <div class="lab-chart">
+                                    <LineChart Title="@($"{host.Name} RTT (24h, ms)")" Unit=" ms" TickFormat="0"
+                                               Times="times" Series="_pingSeries[host.Name]" />
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-muted small p-3">Collecting samples — pinged every 60 seconds.</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private readonly Dictionary<string, IReadOnlyList<DateTimeOffset>> _pingTimes = [];
+    private readonly Dictionary<string, IReadOnlyList<(string, IReadOnlyList<double?>)>> _pingSeries = [];
+    private readonly Dictionary<string, double> _pingLoss = [];
+    private IReadOnlyList<DateTimeOffset> _speedTimes = [];
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _speedSeries = [];
+    private Timer? _refreshTimer;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await LoadAsync();
+        StateHasChanged();
+        _refreshTimer = new Timer(_ => _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    private async Task LoadAsync()
+    {
+        foreach (var host in Config.Value.PingHosts)
+        {
+            var raw = await Metrics.GetPingSeriesAsync(host.Name, DateTimeOffset.Now.AddHours(-24));
+            if (raw.Count > 0)
+                _pingLoss[host.Name] = Math.Round(raw.Count(p => p.Value is null) * 100.0 / raw.Count, 1);
+            var points = MetricsStore.Downsample(raw);
+            _pingTimes[host.Name] = points.Select(p => p.At).ToList();
+            _pingSeries[host.Name] = [("RTT", points.Select(p => p.Value).ToList())];
+        }
+
+        if (Config.Value.SpeedtestHours > 0)
+        {
+            var tests = await Metrics.GetSpeedtestsAsync(DateTimeOffset.Now.AddDays(-30));
+            _speedTimes = tests.Select(t => t.At).ToList();
+            _speedSeries =
+            [
+                ("Down", tests.Select(t => (double?)t.DownMbps).ToList()),
+                ("Up", tests.Select(t => (double?)t.UpMbps).ToList()),
+            ];
+        }
+    }
+
+    public void Dispose() => _refreshTimer?.Dispose();
+}

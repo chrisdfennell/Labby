@@ -1,6 +1,7 @@
 @page "/storage"
 @rendermode InteractiveServer
 @inject QnapClient Qnap
+@inject MetricsStore Metrics
 
 <PageTitle>Labby — Storage</PageTitle>
 
@@ -69,6 +70,10 @@ else
                                 <strong>@v.Label</strong>
                                 <span class="text-muted small">
                                     @Format.Bytes(v.UsedBytes) / @Format.Bytes(v.TotalBytes) (@v.UsedPercent%)
+                                    @if (_volumeFullDays.TryGetValue(v.Label, out var days) && days is { } d)
+                                    {
+                                        <span> · ≈ full in @(d > 365 ? "1y+" : $"{d:0}d")</span>
+                                    }
                                 </span>
                             </div>
                             <div class="progress" style="height: 10px;">
@@ -81,6 +86,23 @@ else
             </div>
         </div>
     </div>
+
+    @if (_usageTimes.Count >= 2)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-lg-6">
+                <LineChart Title="🧠 CPU & RAM (24h, %)" Unit="%" TickFormat="0"
+                           Times="_usageTimes" Series="_usageSeries" />
+            </div>
+            @if (_tempSeries.Count > 0)
+            {
+                <div class="col-lg-6">
+                    <LineChart Title="🌡️ Temperatures (24h, °C)" Unit="°C" TickFormat="0"
+                               Times="_usageTimes" Series="_tempSeries" />
+                </div>
+            }
+        </div>
+    }
 
     @if (_disks.Count > 0)
     {
@@ -124,6 +146,10 @@ else
     private NasSystemInfo? _system;
     private IReadOnlyList<NasVolume> _volumes = [];
     private IReadOnlyList<NasDisk> _disks = [];
+    private IReadOnlyList<DateTimeOffset> _usageTimes = [];
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _usageSeries = [];
+    private IReadOnlyList<(string, IReadOnlyList<double?>)> _tempSeries = [];
+    private readonly Dictionary<string, double?> _volumeFullDays = [];
 
     // Runs after first render so prerendering never blocks on a slow/unreachable NAS.
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -139,6 +165,7 @@ else
             _system = systemTask.Result;
             _volumes = volumesTask.Result;
             _disks = disksTask.Result;
+            await LoadHistoryAsync();
         }
         catch (Exception ex)
         {
@@ -149,5 +176,40 @@ else
             _loading = false;
             StateHasChanged();
         }
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        var from = DateTimeOffset.Now.AddHours(-24);
+        var cpu = MetricsStore.Downsample(await Metrics.GetNasSeriesAsync("cpu", from));
+        var ram = MetricsStore.Downsample(await Metrics.GetNasSeriesAsync("ram", from));
+        var cpuTemp = MetricsStore.Downsample(await Metrics.GetNasSeriesAsync("cpu_temp", from));
+        var sysTemp = MetricsStore.Downsample(await Metrics.GetNasSeriesAsync("sys_temp", from));
+
+        _usageTimes = cpu.Select(p => p.At).ToList();
+        _usageSeries =
+        [
+            ("CPU", cpu.Select(p => p.Value).ToList()),
+            ("RAM", AlignTo(cpu, ram)),
+        ];
+        if (cpuTemp.Any(p => p.Value is not null) || sysTemp.Any(p => p.Value is not null))
+        {
+            _tempSeries =
+            [
+                ("CPU", AlignTo(cpu, cpuTemp)),
+                ("System", AlignTo(cpu, sysTemp)),
+            ];
+        }
+
+        foreach (var v in _volumes)
+            _volumeFullDays[v.Label] = await Metrics.EstimateVolumeFullDaysAsync(v.Label);
+    }
+
+    // All NAS series share timestamps (one row per sample), so aligning is just
+    // padding to the CPU series' length when a column has fewer non-null rows.
+    private static IReadOnlyList<double?> AlignTo(IReadOnlyList<MetricsStore.Point> reference, IReadOnlyList<MetricsStore.Point> series)
+    {
+        var byTime = series.ToDictionary(p => p.At, p => p.Value);
+        return reference.Select(p => byTime.GetValueOrDefault(p.At)).ToList();
     }
 }

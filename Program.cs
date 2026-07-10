@@ -19,6 +19,7 @@ builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOpt
 builder.Services.Configure<HistoryOptions>(builder.Configuration.GetSection(HistoryOptions.SectionName));
 builder.Services.Configure<AlertOptions>(builder.Configuration.GetSection(AlertOptions.SectionName));
 builder.Services.Configure<MediaOptions>(builder.Configuration.GetSection(MediaOptions.SectionName));
+builder.Services.Configure<NetworkOptions>(builder.Configuration.GetSection(NetworkOptions.SectionName));
 
 // Login is opt-in: setting Auth:Password turns it on, otherwise Labby stays open (trusted LAN).
 var authEnabled = !string.IsNullOrWhiteSpace(builder.Configuration[$"{AuthOptions.SectionName}:Password"]);
@@ -105,6 +106,12 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<WeatherHistoryServ
 builder.Services.AddSingleton<WakeOnLanService>();
 builder.Services.AddSingleton<MinerClient>();
 builder.Services.AddSingleton<DockerEngineClient>();
+builder.Services.AddSingleton<MetricsStore>();
+builder.Services.AddHostedService<MetricsHistoryService>();
+builder.Services.AddSingleton<PingMonitor>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PingMonitor>());
+builder.Services.AddSingleton<SpeedtestService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SpeedtestService>());
 builder.Services.AddHostedService<NasHealthMonitor>();
 
 var app = builder.Build();

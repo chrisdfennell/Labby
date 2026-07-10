@@ -77,6 +77,28 @@ public sealed class MediaOptions
     }
 }
 
+/// <summary>Network page: ping targets and scheduled speed tests.</summary>
+public sealed class NetworkOptions
+{
+    public const string SectionName = "Network";
+
+    public List<PingHost> PingHosts { get; set; } = [];
+
+    /// <summary>Hours between speed tests; 0 disables them (they use real bandwidth).</summary>
+    public double SpeedtestHours { get; set; }
+
+    /// <summary>Alert when a speedtest download lands below this (Mbps); 0 disables.</summary>
+    public double MinDownloadMbps { get; set; }
+
+    public bool AnyConfigured => PingHosts.Count > 0 || SpeedtestHours > 0;
+}
+
+public sealed class PingHost
+{
+    public string Name { get; set; } = "";
+    public string Host { get; set; } = "";
+}
+
 public sealed class HistoryOptions
 {
     public const string SectionName = "History";

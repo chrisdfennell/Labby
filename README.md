@@ -7,11 +7,12 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | Page | What it shows |
 |---|---|
 | **Dashboard** (`/`) | Weather, NAS, and media-glance cards (auto-refreshing every 60s), plus tiles for every configured service with live up/down status, latency, a one-hour sparkline, uptime %, up/down duration, and a Wake-on-LAN button for down services with a configured MAC (polled every 30s) |
-| **Storage** (`/storage`) | NAS model/firmware/uptime, CPU/RAM, temperatures, volume usage bars, and per-disk SMART health |
+| **Storage** (`/storage`) | NAS model/firmware/uptime, CPU/RAM, temperatures, volume usage bars with a "full in ≈N days" projection, 24h CPU/RAM/temperature charts, and per-disk SMART health |
 | **Files** (`/files`) | Browse QNAP shares and folders, download files through the app, upload files, and create folders |
 | **Containers** (`/containers`) | Embedded [Kontainr](https://github.com/chrisdfennell/Kontainr) dashboard (full Docker management), plus a Container Station tab with per-container CPU/RAM, start/stop/restart, and a logs viewer (needs the docker.sock mount from the compose file) |
 | **Media** (`/media`) | Plex now-playing (via Tautulli), recently added (Plex), active downloads with speeds and pause/resume (qBittorrent + NZBGet), the Sonarr/Radarr download queue, upcoming episodes/movies, and pending Overseerr requests — auto-refreshing every 15s |
 | **Uptime** (`/uptime`) | Status-page view of every dashboard service: uptime % (24h/7d), a 30-day daily bar strip, and an outage log with durations — history persisted to SQLite |
+| **Network** (`/network`) | Latency charts for pinged hosts (`Network:PingHosts`, 60s cadence, packet-loss %) and scheduled internet speed tests via bundled librespeed-cli (`Network:SpeedtestHours`, 0 = off; optional `MinDownloadMbps` slow-internet alert) |
 | **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, plus 24h/48h/7d history charts (temperature, wind, humidity, barometer) logged to a small SQLite file every 5 minutes |
 
 ## Setup

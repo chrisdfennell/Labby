@@ -31,7 +31,7 @@
                     @foreach (var tick in _ticks)
                     {
                         <line x1="@Inv(PadL)" x2="@Inv(W - PadR)" y1="@Inv(Y(tick))" y2="@Inv(Y(tick))" class="chart-grid" />
-                        @SvgText(PadL - 6, Y(tick) + 3, "chart-tick", "end", tick.ToString(TickFormat))
+                        @SvgText(PadL - 6, Y(tick) + 3, "chart-tick", "end", tick.ToString(_tickFormat))
                     }
                     @* x time labels *@
                     @foreach (var (index, label) in XLabels())
@@ -87,6 +87,7 @@
 
     private double _min, _max;
     private List<double> _ticks = [];
+    private string _tickFormat = "0.#";
     private HashSet<int> _labelled = [];
 
     protected override void OnParametersSet()
@@ -105,6 +106,9 @@
         _min -= pad;
         _max += pad;
         _ticks = NiceTicks(_min, _max);
+        // A coarse format on a sub-unit tick step prints duplicate labels; add decimals as needed.
+        var step = _ticks.Count >= 2 ? _ticks[1] - _ticks[0] : 1;
+        _tickFormat = step >= 1 ? TickFormat : step >= 0.1 ? "0.0" : "0.00";
         _labelled = PickLabelledSeries();
     }
 
