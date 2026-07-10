@@ -21,6 +21,7 @@ builder.Services.Configure<HistoryOptions>(builder.Configuration.GetSection(Hist
 builder.Services.Configure<AlertOptions>(builder.Configuration.GetSection(AlertOptions.SectionName));
 builder.Services.Configure<MediaOptions>(builder.Configuration.GetSection(MediaOptions.SectionName));
 builder.Services.Configure<NetworkOptions>(builder.Configuration.GetSection(NetworkOptions.SectionName));
+builder.Services.Configure<BackupOptions>(builder.Configuration.GetSection(BackupOptions.SectionName));
 
 // Login is opt-in: setting Auth:Password turns it on, otherwise Labby stays open (trusted LAN).
 var authEnabled = !string.IsNullOrWhiteSpace(builder.Configuration[$"{AuthOptions.SectionName}:Password"]);
@@ -115,6 +116,11 @@ builder.Services.AddSingleton<PingMonitor>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PingMonitor>());
 builder.Services.AddSingleton<SpeedtestService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SpeedtestService>());
+builder.Services.AddHttpClient(PublicIpMonitor.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddSingleton<PublicIpMonitor>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PublicIpMonitor>());
+builder.Services.AddSingleton<BackupService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<BackupService>());
 builder.Services.AddHostedService<NasHealthMonitor>();
 
 var app = builder.Build();
@@ -161,6 +167,19 @@ app.MapGet("/share/{token}", async (string token, ShareLinkService shareLinks, Q
         return Results.NotFound("The shared file is no longer available.");
     }
 }).AllowAnonymous();
+
+// Downloads a consistent snapshot of the SQLite database (history, notes, metrics).
+var backup = app.MapGet("/api/backup", async (MetricsStore metrics, CancellationToken ct) =>
+{
+    var temp = Path.Combine(Path.GetTempPath(), $"labby-backup-{Guid.NewGuid():N}.db");
+    await metrics.BackupToAsync(temp, ct);
+    var stream = new FileStream(temp, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
+        FileOptions.DeleteOnClose | FileOptions.Asynchronous);
+    return Results.Stream(stream, "application/octet-stream",
+        fileDownloadName: $"labby-backup-{DateTimeOffset.Now:yyyy-MM-dd}.db");
+});
+if (authEnabled)
+    backup.RequireAuthorization();
 
 // Streams NAS file downloads through the app (the browser can't use our QTS session directly).
 var download = app.MapGet("/api/files/download", async (string path, string name, QnapFileStation fileStation, HttpContext context, CancellationToken ct) =>

@@ -100,13 +100,28 @@ public sealed class NetworkOptions
     /// <summary>Alert when a speedtest download lands below this (Mbps); 0 disables.</summary>
     public double MinDownloadMbps { get; set; }
 
-    public bool AnyConfigured => PingHosts.Count > 0 || SpeedtestHours > 0;
+    /// <summary>Track the WAN IP (api.ipify.org, every 15 min) and alert when it changes.</summary>
+    public bool WatchPublicIp { get; set; } = true;
+
+    public bool AnyConfigured => PingHosts.Count > 0 || SpeedtestHours > 0 || WatchPublicIp;
 }
 
 public sealed class PingHost
 {
     public string Name { get; set; } = "";
     public string Host { get; set; } = "";
+}
+
+/// <summary>Scheduled database backups to a NAS share (opt-in via SharePath).</summary>
+public sealed class BackupOptions
+{
+    public const string SectionName = "Backup";
+
+    /// <summary>File Station destination, e.g. "/Public/labby-backups". Empty disables.</summary>
+    public string SharePath { get; set; } = "";
+
+    /// <summary>Days between scheduled backups.</summary>
+    public double Days { get; set; } = 7;
 }
 
 public sealed class HistoryOptions

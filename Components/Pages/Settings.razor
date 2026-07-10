@@ -1,0 +1,141 @@
+@page "/settings"
+@rendermode InteractiveServer
+@using Microsoft.Extensions.Options
+@inject AlertNotifier Alerts
+@inject MetricsStore Metrics
+@inject BackupService Backups
+@inject IOptions<BackupOptions> BackupConfig
+@inject IJSRuntime Js
+
+<PageTitle>Labby — Settings</PageTitle>
+
+<h1 class="mb-4">⚙️ Settings</h1>
+
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">🎨 Accent theme</div>
+            <div class="card-body">
+                <p class="text-muted small">Per-browser; applies instantly.</p>
+                <div class="d-flex gap-2 flex-wrap">
+                    @foreach (var (name, color) in Themes)
+                    {
+                        <button type="button" class="theme-swatch @(name == _theme ? "active" : "")"
+                                style="--swatch: @color" title="@name" @onclick="() => SetThemeAsync(name)">
+                            @name
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">🔔 Alerts</div>
+            <div class="card-body">
+                @if (!Alerts.IsEnabled)
+                {
+                    <p class="text-muted small mb-2">
+                        No channel configured — set <code>LABBY_ALERT_WEBHOOK</code> and/or
+                        <code>LABBY_PUSHOVER_TOKEN</code> + <code>LABBY_PUSHOVER_USER</code> in <code>.env</code>.
+                    </p>
+                }
+                <button class="btn btn-sm btn-outline-primary" disabled="@(!Alerts.IsEnabled || _testSending)"
+                        @onclick="SendTestAsync">
+                    @(_testSending ? "sending…" : _testSent ? "sent ✓ — check your phone" : "🧪 Send test alert")
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">💾 Backup</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    One SQLite file holds all history, metrics, and notes.
+                    @if (BackupConfig.Value.SharePath is { Length: > 0 } share)
+                    {
+                        <span>Scheduled copy to <code>@share</code> every @BackupConfig.Value.Days days
+                        (last: @(Backups.LastBackupAt?.ToString("MMM d · HH:mm") ?? "not yet")@(Backups.LastError is { } err ? $" — failed: {err}" : "")).</span>
+                    }
+                    else
+                    {
+                        <span>Set <code>Backup:SharePath</code> for scheduled copies to a NAS share.</span>
+                    }
+                </p>
+                <a class="btn btn-sm btn-outline-primary" href="/api/backup" target="_blank">⬇ Download backup now</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">📜 Alert history</div>
+            <div class="card-body p-0">
+                @if (_alerts.Count == 0)
+                {
+                    <p class="text-muted p-3 mb-0">No alerts sent yet.</p>
+                }
+                else
+                {
+                    <table class="table table-sm table-striped align-middle mb-0">
+                        <thead><tr><th style="width: 11rem">When</th><th>Message</th></tr></thead>
+                        <tbody>
+                            @foreach (var a in _alerts)
+                            {
+                                <tr>
+                                    <td class="text-muted">@a.At.ToString("MMM d · HH:mm:ss")</td>
+                                    <td>@a.Message</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private static readonly (string Name, string Color)[] Themes =
+    [
+        ("green", "#2dd4a7"),
+        ("amber", "#f0b429"),
+        ("blue", "#4aa8ff"),
+        ("purple", "#b98aff"),
+    ];
+
+    private string _theme = "green";
+    private bool _testSending;
+    private bool _testSent;
+    private IReadOnlyList<MetricsStore.AlertRecord> _alerts = [];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        _theme = await Js.InvokeAsync<string>("labbyTheme.get");
+        _alerts = await Metrics.GetAlertsAsync();
+        StateHasChanged();
+    }
+
+    private async Task SetThemeAsync(string name)
+    {
+        _theme = name;
+        await Js.InvokeVoidAsync("labbyTheme.set", name);
+    }
+
+    private async Task SendTestAsync()
+    {
+        _testSending = true;
+        try
+        {
+            await Alerts.SendAsync($"🧪 Test alert from Labby — sent {DateTimeOffset.Now:HH:mm:ss}. If you can read this, alerts work.");
+            _testSent = true;
+            _alerts = await Metrics.GetAlertsAsync();
+        }
+        finally
+        {
+            _testSending = false;
+        }
+    }
+}

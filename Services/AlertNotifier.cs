@@ -9,7 +9,7 @@ namespace Labby.Services;
 /// hooks — gets a plain-text POST) and/or Pushover push notifications.
 /// Channels are independent; one failing never blocks the other.
 /// </summary>
-public sealed class AlertNotifier(IHttpClientFactory httpFactory, IOptions<AlertOptions> options, ILogger<AlertNotifier> logger)
+public sealed class AlertNotifier(IHttpClientFactory httpFactory, IOptions<AlertOptions> options, MetricsStore metrics, ILogger<AlertNotifier> logger)
 {
     public const string HttpClientName = "alerts";
     private const string PushoverEndpoint = "https://api.pushover.net/1/messages.json";
@@ -21,6 +21,7 @@ public sealed class AlertNotifier(IHttpClientFactory httpFactory, IOptions<Alert
         if (!IsEnabled)
             return;
 
+        await metrics.WriteAlertAsync(DateTimeOffset.Now, message, ct);
         if (!string.IsNullOrWhiteSpace(options.Value.WebhookUrl))
             await SendWebhookAsync(message, ct);
         if (options.Value.PushoverEnabled)

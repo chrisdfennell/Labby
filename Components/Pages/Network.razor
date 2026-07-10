@@ -3,13 +3,25 @@
 @using Microsoft.Extensions.Options
 @inject PingMonitor Pings
 @inject SpeedtestService Speedtest
+@inject PublicIpMonitor PublicIp
 @inject MetricsStore Metrics
 @inject IOptions<NetworkOptions> Config
 @implements IDisposable
 
 <PageTitle>Labby — Network</PageTitle>
 
-<h1 class="mb-4">🌐 Network</h1>
+<h1 class="mb-1">🌐 Network</h1>
+<p class="text-muted mb-4">
+    @if (Config.Value.WatchPublicIp)
+    {
+        <span>WAN IP: <strong class="font-monospace">@(PublicIp.Current ?? "checking…")</strong>
+        @if (PublicIp.CheckedAt is { } at)
+        {
+            <span> · checked @at.ToString("HH:mm")</span>
+        }
+        <span> · alerts on change</span></span>
+    }
+</p>
 
 @if (!Config.Value.AnyConfigured)
 {

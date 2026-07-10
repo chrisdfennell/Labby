@@ -62,6 +62,63 @@ public sealed class MetricsStore(IOptions<HistoryOptions> options, IHostEnvironm
         SafeWriteAsync("INSERT OR IGNORE INTO speedtest_history (at, down_mbps, up_mbps, ping_ms) VALUES ($a, $b, $c, $d)",
             [("$a", at.ToUnixTimeSeconds()), ("$b", downMbps), ("$c", upMbps), ("$d", pingMs)], ct);
 
+    public Task WriteAlertAsync(DateTimeOffset at, string message, CancellationToken ct) =>
+        SafeWriteAsync("INSERT INTO alert_history (at, message) VALUES ($a, $b)",
+            [("$a", at.ToUnixTimeSeconds()), ("$b", message)], ct);
+
+    /// <summary>Small key/value scratch space (last public IP, etc.).</summary>
+    public Task SetValueAsync(string key, string value, CancellationToken ct) =>
+        SafeWriteAsync("INSERT INTO kv (key, value) VALUES ($a, $b) ON CONFLICT(key) DO UPDATE SET value = $b",
+            [("$a", key), ("$b", value)], ct);
+
+    public async Task<string?> GetValueAsync(string key, CancellationToken ct = default)
+    {
+        if (!File.Exists(_dbPath))
+            return null;
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(ConnectionString);
+        await conn.OpenAsync(ct);
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT value FROM kv WHERE key = $k";
+        cmd.Parameters.AddWithValue("$k", key);
+        return await cmd.ExecuteScalarAsync(ct) as string;
+    }
+
+    public sealed record AlertRecord(DateTimeOffset At, string Message);
+
+    public async Task<IReadOnlyList<AlertRecord>> GetAlertsAsync(int limit = 50, CancellationToken ct = default)
+    {
+        var alerts = new List<AlertRecord>();
+        if (!File.Exists(_dbPath))
+            return alerts;
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(ConnectionString);
+        await conn.OpenAsync(ct);
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT at, message FROM alert_history ORDER BY at DESC LIMIT $n";
+        cmd.Parameters.AddWithValue("$n", limit);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            alerts.Add(new AlertRecord(
+                DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(0)).ToLocalTime(),
+                reader.GetString(1)));
+        }
+        return alerts;
+    }
+
+    /// <summary>Copies a consistent snapshot of the database to <paramref name="destinationPath"/>.</summary>
+    public async Task BackupToAsync(string destinationPath, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(ConnectionString);
+        await conn.OpenAsync(ct);
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "VACUUM INTO $dest";
+        cmd.Parameters.AddWithValue("$dest", destinationPath);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     // ── reads ────────────────────────────────────────────────────────────
 
     public Task<IReadOnlyList<Point>> GetMinerSeriesAsync(string name, DateTimeOffset from, CancellationToken ct = default) =>
@@ -202,6 +259,10 @@ public sealed class MetricsStore(IOptions<HistoryOptions> options, IHostEnvironm
                     host TEXT NOT NULL, at INTEGER NOT NULL, rtt_ms REAL, PRIMARY KEY (host, at));
                 CREATE TABLE IF NOT EXISTS speedtest_history (
                     at INTEGER PRIMARY KEY, down_mbps REAL, up_mbps REAL, ping_ms REAL);
+                CREATE TABLE IF NOT EXISTS alert_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, message TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS kv (
+                    key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 """;
             await cmd.ExecuteNonQueryAsync(ct);
             _initialized = true;
