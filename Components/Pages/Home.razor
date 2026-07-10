@@ -107,7 +107,12 @@
     </div>
 }
 
-<h4 class="mb-3">Services</h4>
+<div class="d-flex align-items-center gap-3 mb-3">
+    <h4 class="mb-0">Services</h4>
+    <button type="button" class="link-btn small" @onclick="() => _editing = !_editing">
+        @(_editing ? "done" : "edit layout")
+    </button>
+</div>
 @if (_services.Count == 0)
 {
     <div class="alert alert-secondary">
@@ -115,10 +120,19 @@
     </div>
 }
 <div class="row g-3">
-    @foreach (var s in _services)
+    @foreach (var s in OrderedServices())
     {
-        <div class="col-sm-6 col-lg-4 col-xxl-3">
+        <div class="col-sm-6 col-lg-4 col-xxl-3 @(_hidden.Contains(s.Name) ? "tile-hidden" : "")">
             <div class="card service-tile h-100">
+                @if (_editing)
+                {
+                    <div class="tile-edit-bar">
+                        <button type="button" title="Move up" @onclick="() => MoveAsync(s.Name, -1)">←</button>
+                        <button type="button" title="Move down" @onclick="() => MoveAsync(s.Name, 1)">→</button>
+                        <button type="button" title="@(_hidden.Contains(s.Name) ? "Show" : "Hide")"
+                                @onclick="() => ToggleHiddenAsync(s.Name)">@(_hidden.Contains(s.Name) ? "👁 show" : "🚫 hide")</button>
+                    </div>
+                }
                 <a href="@s.Url" target="_blank" rel="noreferrer" class="text-decoration-none service-tile-link">
                     <div class="card-body d-flex align-items-center gap-3">
                         <div class="fs-2">@s.Icon</div>
@@ -233,7 +247,69 @@
     private int? _pendingRequests;
     private IReadOnlyList<MinerStatus> _miners = [];
     private readonly HashSet<string> _woken = [];
+    private bool _editing;
+    private List<string> _order = [];
+    private readonly HashSet<string> _hidden = [];
+    private bool _layoutLoaded;
     private Timer? _refreshTimer;
+
+    private sealed record TileLayout(List<string> Order, List<string> Hidden);
+
+    // Saved order first (unknown names keep their config order at the end);
+    // hidden tiles only render while editing.
+    private IEnumerable<ServiceStatus> OrderedServices()
+    {
+        var indexed = _order.Select((name, i) => (name, i)).ToDictionary(x => x.name, x => x.i);
+        var sorted = _services.OrderBy(s => indexed.TryGetValue(s.Name, out var i) ? i : int.MaxValue);
+        return _editing ? sorted : sorted.Where(s => !_hidden.Contains(s.Name));
+    }
+
+    private async Task LoadLayoutAsync()
+    {
+        if (_layoutLoaded)
+            return;
+        _layoutLoaded = true;
+        try
+        {
+            if (await Metrics.GetValueAsync("dashboard-layout") is { } json
+                && System.Text.Json.JsonSerializer.Deserialize<TileLayout>(json) is { } layout)
+            {
+                _order = layout.Order;
+                _hidden.Clear();
+                foreach (var name in layout.Hidden)
+                    _hidden.Add(name);
+            }
+        }
+        catch (Exception)
+        {
+            // Corrupt layout json — fall back to config order.
+        }
+    }
+
+    private async Task SaveLayoutAsync()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(new TileLayout(_order, [.. _hidden]));
+        await Metrics.SetValueAsync("dashboard-layout", json, CancellationToken.None);
+    }
+
+    private async Task MoveAsync(string name, int delta)
+    {
+        var current = OrderedServices().Select(s => s.Name).ToList();
+        var index = current.IndexOf(name);
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= current.Count)
+            return;
+        (current[index], current[target]) = (current[target], current[index]);
+        _order = current;
+        await SaveLayoutAsync();
+    }
+
+    private async Task ToggleHiddenAsync(string name)
+    {
+        if (!_hidden.Remove(name))
+            _hidden.Add(name);
+        await SaveLayoutAsync();
+    }
 
     protected override void OnInitialized()
     {
@@ -256,7 +332,8 @@
     }
 
     // Cards load independently so one failing doesn't blank the others.
-    private Task LoadCardsAsync() => Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync());
+    private Task LoadCardsAsync() =>
+        Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync(), LoadLayoutAsync());
 
     private IReadOnlyList<DateTimeOffset> _minerTimes = [];
     private IReadOnlyList<(string, IReadOnlyList<double?>)> _minerSeries = [];

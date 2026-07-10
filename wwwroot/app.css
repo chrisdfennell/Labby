@@ -137,6 +137,34 @@ code {
     transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
+.tile-hidden {
+    opacity: 0.4;
+}
+
+.tile-edit-bar {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.3rem 0.6rem;
+    border-bottom: 1px solid var(--lab-border);
+    background: var(--lab-panel-deep);
+}
+
+    .tile-edit-bar button {
+        background: none;
+        border: 1px solid var(--lab-border);
+        border-radius: 4px;
+        color: var(--lab-text);
+        font-family: var(--lab-mono);
+        font-size: 0.72rem;
+        padding: 0 0.4rem;
+        cursor: pointer;
+    }
+
+        .tile-edit-bar button:hover {
+            border-color: var(--lab-accent);
+            color: var(--lab-accent);
+        }
+
 .service-tile-link {
     color: inherit;
     display: block;
@@ -453,6 +481,15 @@ code {
 
 .cal-key.cal-tv { color: var(--lab-accent); border: 0; }
 .cal-key.cal-movie { color: var(--lab-amber); border: 0; }
+
+/* ── Kiosk mode ──────────────────────────────────────────────────────── */
+html.kiosk .topbar {
+    display: none;
+}
+
+html.kiosk article.content {
+    max-width: 100%;
+}
 
 /* ── Settings ────────────────────────────────────────────────────────── */
 .theme-swatch {

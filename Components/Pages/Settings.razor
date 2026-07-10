@@ -69,6 +69,34 @@
     </div>
     <div class="col-12">
         <div class="card">
+            <div class="card-header">📺 Kiosk / TV mode</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Full-screen rotation for a wall-mounted display — hides the nav and cycles the selected pages.
+                    Press <kbd>Esc</kbd> on the kiosk device to exit.
+                </p>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    @foreach (var (path, label) in KioskPages)
+                    {
+                        <label class="form-check-label d-flex align-items-center gap-1">
+                            <input type="checkbox" class="form-check-input"
+                                   checked="@_kioskSelection.Contains(path)"
+                                   @onchange="e => ToggleKioskPage(path, e.Value is true)" />
+                            @label
+                        </label>
+                    }
+                    <span class="d-flex align-items-center gap-1">
+                        every <input type="number" class="form-control form-control-sm" style="width:5rem"
+                                     min="5" @bind="_kioskSeconds" /> s
+                    </span>
+                    <button class="btn btn-sm btn-outline-primary" disabled="@(_kioskSelection.Count == 0)"
+                            @onclick="StartKioskAsync">▶ Start kiosk</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
             <div class="card-header">📜 Alert history</div>
             <div class="card-body p-0">
                 @if (_alerts.Count == 0)
@@ -104,9 +132,21 @@
         ("purple", "#b98aff"),
     ];
 
+    private static readonly (string Path, string Label)[] KioskPages =
+    [
+        ("", "Dashboard"),
+        ("media", "Media"),
+        ("weather", "Weather"),
+        ("uptime", "Uptime"),
+        ("network", "Network"),
+        ("calendar", "Calendar"),
+    ];
+
     private string _theme = "green";
     private bool _testSending;
     private bool _testSent;
+    private readonly HashSet<string> _kioskSelection = ["", "media", "weather", "uptime"];
+    private int _kioskSeconds = 20;
     private IReadOnlyList<MetricsStore.AlertRecord> _alerts = [];
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -123,6 +163,19 @@
         _theme = name;
         await Js.InvokeVoidAsync("labbyTheme.set", name);
     }
+
+    private void ToggleKioskPage(string path, bool selected)
+    {
+        if (selected)
+            _kioskSelection.Add(path);
+        else
+            _kioskSelection.Remove(path);
+    }
+
+    private Task StartKioskAsync() =>
+        Js.InvokeVoidAsync("labbyKiosk.start",
+            KioskPages.Select(p => p.Path).Where(_kioskSelection.Contains).ToArray(),
+            Math.Max(5, _kioskSeconds)).AsTask();
 
     private async Task SendTestAsync()
     {
