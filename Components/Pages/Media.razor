@@ -6,7 +6,63 @@
 
 <PageTitle>Labby — Media</PageTitle>
 
-<h1 class="mb-4">🎬 Media</h1>
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">🎬 Media</h1>
+    @if (Hub.OverseerrConfigured)
+    {
+        <div class="d-flex gap-2 ms-auto media-search">
+            <input class="form-control form-control-sm" placeholder="Search movies & shows…"
+                   @bind="_searchQuery" @bind:event="oninput" @onkeydown="OnSearchKeyDown" />
+            <button class="btn btn-sm btn-outline-primary" disabled="@(_searching || string.IsNullOrWhiteSpace(_searchQuery))"
+                    @onclick="SearchAsync">@(_searching ? "…" : "Search")</button>
+        </div>
+    }
+</div>
+
+@if (_searchResults is not null)
+{
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between">
+            <span>🔎 Results for "@_lastQuery"</span>
+            <button type="button" class="link-btn" @onclick="() => _searchResults = null">close</button>
+        </div>
+        <div class="card-body">
+            @if (_searchError is not null)
+            {
+                <span class="text-danger small">@_searchError</span>
+            }
+            else if (_searchResults.Count == 0)
+            {
+                <span class="text-muted">Nothing found.</span>
+            }
+            @foreach (var r in _searchResults)
+            {
+                <div class="media-upcoming d-flex justify-content-between align-items-center gap-2">
+                    <span class="text-truncate">
+                        <span class="fw-semibold">@r.Title</span>
+                        <span class="text-muted">@(r.Year is { } y ? $"({y})" : "")</span>
+                        <span class="badge bg-secondary ms-1">@r.Type</span>
+                    </span>
+                    <span class="text-nowrap">
+                        @if (_requested.Contains(r.TmdbId))
+                        {
+                            <span class="badge bg-success">requested ✓</span>
+                        }
+                        else if (r.Status is { } status)
+                        {
+                            <span class="badge bg-success">@status</span>
+                        }
+                        else
+                        {
+                            <button type="button" class="req-btn approve" disabled="@_requestActionBusy"
+                                    @onclick="() => RequestAsync(r)">+ request</button>
+                        }
+                    </span>
+                </div>
+            }
+        </div>
+    </div>
+}
 
 @if (!Hub.AnyConfigured)
 {
@@ -321,6 +377,37 @@ else
                 </div>
             </div>
         }
+        @if (Hub.ProwlarrConfigured)
+        {
+            <div class="col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header">🕵️ Indexers</div>
+                    <div class="card-body">
+                        @if (_indexers is null)
+                        {
+                            <span class="text-muted">Loading…</span>
+                        }
+                        else if (_indexers.Error is not null)
+                        {
+                            <span class="text-danger small">Prowlarr: @_indexers.Error</span>
+                        }
+                        else if (_indexers.Messages.Count == 0)
+                        {
+                            <span class="state-up">✓ All indexers healthy</span>
+                        }
+                        else
+                        {
+                            @foreach (var (type, message) in _indexers.Messages)
+                            {
+                                <div class="small @(type == "error" ? "state-down" : "state-warn")">
+                                    @(type == "error" ? "✗" : "⚠") @message
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
         @if (Hub.TautulliConfigured)
         {
             <div class="col-12"><h4 class="mb-0 mt-2">Watch statistics (30 days)</h4></div>
@@ -411,6 +498,13 @@ else
     private string? _downloadActionError;
     private bool _requestActionBusy;
     private string? _requestActionError;
+    private IndexerHealthSnapshot? _indexers;
+    private string _searchQuery = "";
+    private string _lastQuery = "";
+    private bool _searching;
+    private string? _searchError;
+    private IReadOnlyList<SearchResult>? _searchResults;
+    private readonly HashSet<long> _requested = [];
     private Timer? _refreshTimer;
 
     // Data loads after first render so prerendering never blocks on the media stack.
@@ -453,6 +547,8 @@ else
                 _watchStats = v;
                 _watchSeries = [("TV", v.TvPlays), ("Movies", v.MoviePlays)];
             }));
+        if (Hub.ProwlarrConfigured)
+            tasks.Add(AssignAsync(Hub.GetIndexerHealthAsync(), v => _indexers = v));
         return Task.WhenAll(tasks);
     }
 
@@ -488,6 +584,48 @@ else
         finally
         {
             _downloadActionBusy = false;
+        }
+    }
+
+    private Task OnSearchKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Enter" && !string.IsNullOrWhiteSpace(_searchQuery) ? SearchAsync() : Task.CompletedTask;
+
+    private async Task SearchAsync()
+    {
+        _searching = true;
+        _searchError = null;
+        _lastQuery = _searchQuery.Trim();
+        try
+        {
+            _searchResults = await Hub.SearchMediaAsync(_lastQuery);
+        }
+        catch (Exception ex)
+        {
+            _searchResults = [];
+            _searchError = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _searching = false;
+        }
+    }
+
+    private async Task RequestAsync(SearchResult result)
+    {
+        _requestActionBusy = true;
+        try
+        {
+            await Hub.SubmitRequestAsync(result.TmdbId, result.Type);
+            _requested.Add(result.TmdbId);
+            _requests = await Hub.GetRequestsAsync();
+        }
+        catch (Exception ex)
+        {
+            _searchError = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _requestActionBusy = false;
         }
     }
 

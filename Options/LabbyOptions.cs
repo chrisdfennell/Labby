@@ -64,6 +64,7 @@ public sealed class MediaOptions
     public ApiEndpoint Overseerr { get; set; } = new();
     /// <summary>Direct Plex access for "recently added"; ApiKey holds the X-Plex-Token.</summary>
     public ApiEndpoint Plex { get; set; } = new();
+    public ApiEndpoint Prowlarr { get; set; } = new();
     public CredentialEndpoint Qbittorrent { get; set; } = new();
     public CredentialEndpoint Nzbget { get; set; } = new();
 

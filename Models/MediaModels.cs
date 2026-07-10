@@ -121,3 +121,21 @@ public sealed record WatchStatsSnapshot
 }
 
 public sealed record TopEntry(string Name, long Plays);
+
+/// <summary>One Overseerr/Seerr search result.</summary>
+public sealed record SearchResult
+{
+    public long TmdbId { get; init; }
+    public string Type { get; init; } = "";
+    public string Title { get; init; } = "";
+    public int? Year { get; init; }
+    /// <summary>Library status: null = not in library, otherwise "pending"/"processing"/"partial"/"available".</summary>
+    public string? Status { get; init; }
+}
+
+/// <summary>Prowlarr health messages (empty = all indexers healthy).</summary>
+public sealed record IndexerHealthSnapshot
+{
+    public IReadOnlyList<(string Type, string Message)> Messages { get; init; } = [];
+    public string? Error { get; init; }
+}

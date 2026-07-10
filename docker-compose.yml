@@ -47,6 +47,8 @@ services:
       # Media page integrations — all optional.
       Media__Plex__Url: ${PLEX_BASE_URL:-}
       Media__Plex__ApiKey: ${PLEX_TOKEN:-}
+      Media__Prowlarr__Url: ${PROWLARR_BASE_URL:-}
+      Media__Prowlarr__ApiKey: ${PROWLARR_API_KEY:-}
       Media__Tautulli__Url: ${TAUTULLI_BASE_URL:-}
       Media__Tautulli__ApiKey: ${TAUTULLI_API_KEY:-}
       Media__Sonarr__Url: ${SONARR_BASE_URL:-}

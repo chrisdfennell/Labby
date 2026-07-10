@@ -1,0 +1,105 @@
+@page "/calendar"
+@rendermode InteractiveServer
+@inject MediaHub Hub
+
+<PageTitle>Labby — Calendar</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">📅 Release calendar</h1>
+    <div class="chart-range ms-auto">
+        <button class="btn btn-outline-primary" @onclick="() => ShiftMonthAsync(-1)">←</button>
+        <button class="btn btn-outline-primary" @onclick="() => ShiftMonthAsync(0)">today</button>
+        <button class="btn btn-outline-primary" @onclick="() => ShiftMonthAsync(1)">→</button>
+    </div>
+</div>
+
+@if (!Hub.SonarrConfigured && !Hub.RadarrConfigured)
+{
+    <div class="alert alert-warning">Configure Sonarr and/or Radarr under <code>Media</code> to populate the calendar.</div>
+}
+else
+{
+    <h4 class="mb-3">@_month.ToString("MMMM yyyy")</h4>
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+    <div class="cal-grid @(_loading ? "cal-loading" : "")">
+        @foreach (var day in (string[])["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+        {
+            <div class="cal-head">@day</div>
+        }
+        @foreach (var day in GridDays())
+        {
+            <div class="cal-cell @(day.Month != _month.Month ? "cal-other" : "") @(day == DateOnly.FromDateTime(DateTime.Today) ? "cal-today" : "")">
+                <div class="cal-date">@day.Day</div>
+                @foreach (var item in _byDay.GetValueOrDefault(day, []))
+                {
+                    <div class="cal-item @(item.Source == "Sonarr" ? "cal-tv" : "cal-movie")"
+                         title="@item.Title @item.Detail (@item.Source)@(item.HasFile ? " — downloaded" : "")">
+                        @(item.HasFile ? "✔ " : "")@item.Title <span class="cal-detail">@item.Detail</span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+    <p class="text-muted small mt-2">
+        <span class="cal-key cal-tv">■</span> episodes · <span class="cal-key cal-movie">■</span> movie releases · ✔ already downloaded
+    </p>
+}
+
+@code {
+    private DateOnly _month = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private Dictionary<DateOnly, List<UpcomingItem>> _byDay = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await LoadAsync();
+        StateHasChanged();
+    }
+
+    private async Task ShiftMonthAsync(int months)
+    {
+        _month = months == 0
+            ? new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1)
+            : _month.AddMonths(months);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var items = await Hub.GetCalendarAsync(_month, _month.AddMonths(1).AddDays(-1));
+            _byDay = items
+                .GroupBy(i => DateOnly.FromDateTime(i.At.Date))
+                .ToDictionary(g => g.Key, g => g.ToList());
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private IEnumerable<DateOnly> GridDays()
+    {
+        // Monday-start grid covering the whole month.
+        var first = _month;
+        var lead = ((int)first.DayOfWeek + 6) % 7;
+        var start = first.AddDays(-lead);
+        var last = _month.AddMonths(1).AddDays(-1);
+        var trail = 6 - ((int)last.DayOfWeek + 6) % 7;
+        for (var d = start; d <= last.AddDays(trail); d = d.AddDays(1))
+            yield return d;
+    }
+}

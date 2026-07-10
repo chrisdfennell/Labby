@@ -36,6 +36,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     public bool RadarrConfigured => _options.Radarr.IsConfigured;
     public bool OverseerrConfigured => _options.Overseerr.IsConfigured;
     public bool PlexConfigured => _options.Plex.IsConfigured;
+    public bool ProwlarrConfigured => _options.Prowlarr.IsConfigured;
     public bool DownloadsConfigured => _options.Qbittorrent.IsConfigured || _options.Nzbget.IsConfigured;
 
     public Task<NowPlayingSnapshot> GetNowPlayingAsync(CancellationToken ct = default) =>
@@ -61,6 +62,124 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
 
     public Task<WatchStatsSnapshot> GetWatchStatsAsync(CancellationToken ct = default) =>
         GetCachedAsync(_watchStats, CalendarTtl, FetchWatchStatsAsync, ct);
+
+    /// <summary>Searches Overseerr/Seerr for movies and shows.</summary>
+    public async Task<IReadOnlyList<SearchResult>> SearchMediaAsync(string query, CancellationToken ct = default)
+    {
+        using var doc = await GetJsonAsync(
+            $"{_options.Overseerr.Url.TrimEnd('/')}/api/v1/search?page=1&query={Uri.EscapeDataString(query)}",
+            ct, apiKey: _options.Overseerr.ApiKey);
+        var results = new List<SearchResult>();
+        foreach (var r in doc.RootElement.GetProperty("results").EnumerateArray())
+        {
+            var type = Str(r, "mediaType");
+            if (type is not ("movie" or "tv"))
+                continue;
+            var date = Str(r, type == "movie" ? "releaseDate" : "firstAirDate");
+            var status = r.TryGetProperty("mediaInfo", out var info) ? Num(info, "status") : null;
+            results.Add(new SearchResult
+            {
+                TmdbId = (long)(Num(r, "id") ?? 0),
+                Type = type,
+                Title = type == "movie" ? Str(r, "title") : Str(r, "name"),
+                Year = date.Length >= 4 && int.TryParse(date[..4], out var y) ? y : null,
+                Status = status switch { 2 => "pending", 3 => "requested", 4 => "partial", 5 => "available", _ => null },
+            });
+        }
+        return results.Take(12).ToList();
+    }
+
+    /// <summary>Submits a new request (all seasons for TV).</summary>
+    public async Task SubmitRequestAsync(long tmdbId, string mediaType, CancellationToken ct = default)
+    {
+        var http = httpFactory.CreateClient(HttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{_options.Overseerr.Url.TrimEnd('/')}/api/v1/request")
+        {
+            Content = mediaType == "tv"
+                ? JsonContent.Create(new { mediaType, mediaId = tmdbId, seasons = "all" })
+                : JsonContent.Create(new { mediaType, mediaId = tmdbId }),
+        };
+        request.Headers.Add("X-Api-Key", _options.Overseerr.ApiKey);
+        using var response = await http.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        _requests.At = DateTimeOffset.MinValue;
+    }
+
+    /// <summary>Prowlarr health messages (indexer failures and warnings).</summary>
+    public async Task<IndexerHealthSnapshot> GetIndexerHealthAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var doc = await GetJsonAsync($"{_options.Prowlarr.Url.TrimEnd('/')}/api/v1/health", ct, apiKey: _options.Prowlarr.ApiKey);
+            var messages = new List<(string, string)>();
+            foreach (var m in doc.RootElement.EnumerateArray())
+                messages.Add((Str(m, "type"), Str(m, "message")));
+            return new IndexerHealthSnapshot { Messages = messages };
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Prowlarr fetch failed");
+            return new IndexerHealthSnapshot { Error = Describe(ex) };
+        }
+    }
+
+    /// <summary>Sonarr + Radarr releases for an arbitrary window (the Calendar page).</summary>
+    public async Task<IReadOnlyList<UpcomingItem>> GetCalendarAsync(DateOnly start, DateOnly end, CancellationToken ct = default)
+    {
+        var items = new List<UpcomingItem>();
+        if (_options.Sonarr.IsConfigured)
+        {
+            using var doc = await GetJsonAsync(
+                $"{_options.Sonarr.Url.TrimEnd('/')}/api/v3/calendar?start={start:yyyy-MM-dd}&end={end:yyyy-MM-dd}&includeSeries=true",
+                ct, apiKey: _options.Sonarr.ApiKey);
+            foreach (var e in doc.RootElement.EnumerateArray())
+            {
+                var series = e.TryGetProperty("series", out var s) ? Str(s, "title") : "";
+                items.Add(new UpcomingItem
+                {
+                    Title = series,
+                    Detail = $"S{Num(e, "seasonNumber"):00}E{Num(e, "episodeNumber"):00}",
+                    At = Date(e, "airDateUtc") ?? DateTimeOffset.Now,
+                    Source = "Sonarr",
+                    HasFile = e.TryGetProperty("hasFile", out var hf) && hf.ValueKind == JsonValueKind.True,
+                });
+            }
+        }
+        if (_options.Radarr.IsConfigured)
+        {
+            using var doc = await GetJsonAsync(
+                $"{_options.Radarr.Url.TrimEnd('/')}/api/v3/calendar?start={start:yyyy-MM-dd}&end={end:yyyy-MM-dd}",
+                ct, apiKey: _options.Radarr.ApiKey);
+            foreach (var e in doc.RootElement.EnumerateArray())
+            {
+                var releases = new (string Label, DateTimeOffset? At)[]
+                {
+                    ("cinema", Date(e, "inCinemas")),
+                    ("digital", Date(e, "digitalRelease")),
+                    ("physical", Date(e, "physicalRelease")),
+                };
+                foreach (var (label, at) in releases)
+                {
+                    if (at is { } d && DateOnly.FromDateTime(d.Date) >= start && DateOnly.FromDateTime(d.Date) <= end)
+                    {
+                        items.Add(new UpcomingItem
+                        {
+                            Title = Str(e, "title"),
+                            Detail = label,
+                            At = d,
+                            Source = "Radarr",
+                            HasFile = e.TryGetProperty("hasFile", out var hf) && hf.ValueKind == JsonValueKind.True,
+                        });
+                    }
+                }
+            }
+        }
+        return items.OrderBy(i => i.At).ToList();
+    }
 
     /// <summary>Approve or decline a pending Overseerr/Seerr request.</summary>
     public async Task ResolveRequestAsync(long requestId, bool approve, CancellationToken ct = default)
