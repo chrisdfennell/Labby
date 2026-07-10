@@ -1,0 +1,132 @@
+@inject ServiceHealthMonitor Health
+@inject Microsoft.Extensions.Options.IOptions<DashboardOptions> Dashboard
+@inject NavigationManager Nav
+@inject IJSRuntime Js
+@implements IDisposable
+
+@if (_open)
+{
+    <div class="palette-backdrop" @onclick="Close">
+        <div class="palette" @onclick:stopPropagation>
+            <input @ref="_input" class="palette-input" placeholder="Jump to page, service, or link…"
+                   value="@_query" @oninput="OnInput" @onkeydown="OnKeyDown" />
+            <div class="palette-list">
+                @for (var i = 0; i < _filtered.Count; i++)
+                {
+                    var index = i;
+                    var item = _filtered[i];
+                    <button type="button" class="palette-item @(index == _selected ? "selected" : "")"
+                            @onclick="() => ActivateAsync(item)" @onmouseover="() => _selected = index">
+                        <span aria-hidden="true">@item.Icon</span>
+                        <span class="flex-grow-1 text-truncate">@item.Name</span>
+                        <span class="text-muted small">@item.Kind</span>
+                    </button>
+                }
+                @if (_filtered.Count == 0)
+                {
+                    <div class="text-muted small p-2">No matches.</div>
+                }
+            </div>
+            <div class="palette-hint text-muted small">↑↓ navigate · ↵ open · esc close</div>
+        </div>
+    </div>
+}
+
+@code {
+    private sealed record Item(string Icon, string Name, string Kind, string Target, bool External);
+
+    private static readonly Item[] Pages =
+    [
+        new("📟", "Dashboard", "page", "", false),
+        new("💾", "Storage", "page", "storage", false),
+        new("📁", "Files", "page", "files", false),
+        new("📦", "Containers", "page", "containers", false),
+        new("🎬", "Media", "page", "media", false),
+        new("🌤️", "Weather", "page", "weather", false),
+        new("📈", "Uptime", "page", "uptime", false),
+        new("🌐", "Network", "page", "network", false),
+        new("📝", "Notes", "page", "notes", false),
+    ];
+
+    private bool _open;
+    private string _query = "";
+    private int _selected;
+    private List<Item> _all = [];
+    private List<Item> _filtered = [];
+    private ElementReference _input;
+    private DotNetObjectReference<CommandPalette>? _selfRef;
+    private bool _focusPending;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await Js.InvokeVoidAsync("labbyPalette.init", _selfRef);
+        }
+        if (_focusPending)
+        {
+            _focusPending = false;
+            await _input.FocusAsync();
+        }
+    }
+
+    [JSInvokable]
+    public Task Open()
+    {
+        _all =
+        [
+            .. Pages,
+            .. Health.Snapshot.Select(s => new Item(s.Icon, s.Name, "service", s.Url, true)),
+            .. Dashboard.Value.Links.Select(l => new Item(l.Icon, l.Name, "link", l.Url, true)),
+        ];
+        _query = "";
+        _selected = 0;
+        _filtered = _all;
+        _open = true;
+        _focusPending = true;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void Close() => _open = false;
+
+    private void OnInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? "";
+        _filtered = _all
+            .Where(i => i.Name.Contains(_query, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        _selected = 0;
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                Close();
+                break;
+            case "ArrowDown":
+                _selected = Math.Min(_selected + 1, Math.Max(0, _filtered.Count - 1));
+                break;
+            case "ArrowUp":
+                _selected = Math.Max(_selected - 1, 0);
+                break;
+            case "Enter":
+                if (_selected < _filtered.Count)
+                    await ActivateAsync(_filtered[_selected]);
+                break;
+        }
+    }
+
+    private async Task ActivateAsync(Item item)
+    {
+        Close();
+        if (item.External)
+            await Js.InvokeVoidAsync("labbyPalette.open", item.Target);
+        else
+            Nav.NavigateTo(item.Target);
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
+}

@@ -107,6 +107,7 @@ builder.Services.AddSingleton<WakeOnLanService>();
 builder.Services.AddSingleton<MinerClient>();
 builder.Services.AddSingleton<DockerEngineClient>();
 builder.Services.AddSingleton<ShareLinkService>();
+builder.Services.AddSingleton<NotesStore>();
 builder.Services.AddSingleton<MetricsStore>();
 builder.Services.AddHostedService<MetricsHistoryService>();
 builder.Services.AddSingleton<PingMonitor>();

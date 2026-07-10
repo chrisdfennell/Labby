@@ -1,0 +1,135 @@
+@page "/notes"
+@rendermode InteractiveServer
+@using Markdig
+@inject NotesStore Store
+
+<PageTitle>Labby — Notes</PageTitle>
+
+<h1 class="mb-4">📝 Notes</h1>
+
+<div class="row g-3">
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-body p-2">
+                <button class="btn btn-sm btn-outline-primary w-100 mb-2" @onclick="NewNote">+ New note</button>
+                @foreach (var note in _notes)
+                {
+                    <button type="button" class="note-item @(note.Id == _editingId ? "active" : "")"
+                            @onclick="() => OpenNote(note)">
+                        <span class="text-truncate">@(string.IsNullOrWhiteSpace(note.Title) ? "(untitled)" : note.Title)</span>
+                        <span class="text-muted small">@note.UpdatedAt.ToString("MMM d")</span>
+                    </button>
+                }
+                @if (_notes.Count == 0)
+                {
+                    <div class="text-muted small p-2">Runbooks, config snippets, todo lists — they render as markdown.</div>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-9">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    <input class="form-control form-control-sm note-title" placeholder="Title"
+                           @bind="_title" @bind:event="oninput" />
+                    <button class="btn btn-sm btn-outline-primary" @onclick="SaveAsync"
+                            disabled="@(_saving || (string.IsNullOrWhiteSpace(_title) && string.IsNullOrWhiteSpace(_content)))">
+                        @(_saving ? "saving…" : _saved ? "saved ✓" : "save")
+                    </button>
+                    <button class="btn btn-sm @(_preview ? "btn-outline-primary active" : "btn-outline-secondary")"
+                            @onclick="() => _preview = !_preview">@(_preview ? "edit" : "preview")</button>
+                    @if (_editingId is not null)
+                    {
+                        @if (_confirmDelete)
+                        {
+                            <button class="btn btn-sm btn-danger" @onclick="DeleteAsync">confirm delete</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => _confirmDelete = true">delete</button>
+                        }
+                    }
+                </div>
+                @if (_preview)
+                {
+                    <div class="note-preview">@((MarkupString)Markdown.ToHtml(_content, Pipeline))</div>
+                }
+                else
+                {
+                    <textarea class="form-control note-editor" placeholder="Write markdown…"
+                              @bind="_content" @bind:event="oninput"></textarea>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // No raw-HTML passthrough: note content renders as markdown only.
+    private static readonly MarkdownPipeline Pipeline =
+        new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+
+    private IReadOnlyList<NotesStore.Note> _notes = [];
+    private long? _editingId;
+    private string _title = "";
+    private string _content = "";
+    private bool _preview;
+    private bool _saving;
+    private bool _saved;
+    private bool _confirmDelete;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        _notes = await Store.GetAllAsync();
+        if (_notes.Count > 0)
+            OpenNote(_notes[0]);
+        StateHasChanged();
+    }
+
+    private void NewNote()
+    {
+        _editingId = null;
+        _title = "";
+        _content = "";
+        _preview = false;
+        _saved = false;
+        _confirmDelete = false;
+    }
+
+    private void OpenNote(NotesStore.Note note)
+    {
+        _editingId = note.Id;
+        _title = note.Title;
+        _content = note.Content;
+        _saved = false;
+        _confirmDelete = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            _editingId = await Store.SaveAsync(_editingId, _title.Trim(), _content);
+            _notes = await Store.GetAllAsync();
+            _saved = true;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_editingId is { } id)
+        {
+            await Store.DeleteAsync(id);
+            _notes = await Store.GetAllAsync();
+        }
+        NewNote();
+    }
+}
