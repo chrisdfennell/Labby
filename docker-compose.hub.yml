@@ -1,0 +1,82 @@
+# Pull-based deployment: images come from Docker Hub (built by GitHub Actions),
+# so the NAS never compiles anything. Updating:
+#   docker compose -f docker-compose.hub.yml pull
+#   docker compose -f docker-compose.hub.yml up -d
+# Uses the same .env as docker-compose.yml.
+services:
+  labby:
+    image: fennch/labby:latest
+    container_name: labby
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - kontainr
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/5123 && printf 'GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    environment:
+      ASPNETCORE_HTTP_PORTS: "5123"
+      TZ: ${TZ:-}
+      Auth__Username: ${LABBY_AUTH_USERNAME:-labby}
+      Auth__Password: ${LABBY_AUTH_PASSWORD:-}
+      Alerts__WebhookUrl: ${LABBY_ALERT_WEBHOOK:-}
+      Alerts__PushoverToken: ${LABBY_PUSHOVER_TOKEN:-}
+      Alerts__PushoverUser: ${LABBY_PUSHOVER_USER:-}
+      Qnap__Host: ${QNAP_HOST:-}
+      Qnap__Port: ${QNAP_PORT:-8080}
+      Qnap__UseHttps: ${QNAP_USE_HTTPS:-false}
+      Qnap__Username: ${QNAP_USERNAME:-}
+      Qnap__Password: ${QNAP_PASSWORD:-}
+      AmbientWeather__ApiKey: ${AMBIENT_API_KEY:-}
+      AmbientWeather__ApplicationKey: ${AMBIENT_APP_KEY:-}
+      AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
+      Kontainr__Url: ${KONTAINR_URL:-}
+      Terminal__Url: ${TERMINAL_URL:-}
+      Media__Plex__Url: ${PLEX_BASE_URL:-}
+      Media__Plex__ApiKey: ${PLEX_TOKEN:-}
+      Media__Prowlarr__Url: ${PROWLARR_BASE_URL:-}
+      Media__Prowlarr__ApiKey: ${PROWLARR_API_KEY:-}
+      Media__Tautulli__Url: ${TAUTULLI_BASE_URL:-}
+      Media__Tautulli__ApiKey: ${TAUTULLI_API_KEY:-}
+      Media__Sonarr__Url: ${SONARR_BASE_URL:-}
+      Media__Sonarr__ApiKey: ${SONARR_API_KEY:-}
+      Media__Radarr__Url: ${RADARR_BASE_URL:-}
+      Media__Radarr__ApiKey: ${RADARR_API_KEY:-}
+      Media__Overseerr__Url: ${OVERSEERR_BASE_URL:-}
+      Media__Overseerr__ApiKey: ${OVERSEERR_API_KEY:-}
+      Media__Qbittorrent__Url: ${QBITTORRENT_BASE_URL:-}
+      Media__Qbittorrent__Username: ${QBITTORRENT_USERNAME:-}
+      Media__Qbittorrent__Password: ${QBITTORRENT_PASSWORD:-}
+      Media__Nzbget__Url: ${NZBGET_BASE_URL:-}
+      Media__Nzbget__Username: ${NZBGET_USERNAME:-}
+      Media__Nzbget__Password: ${NZBGET_PASSWORD:-}
+    volumes:
+      - labby-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  kontainr:
+    image: fennch/kontainr:latest
+    container_name: kontainr
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kontainr-data:/app/data
+    environment:
+      Auth__Username: ${KONTAINR_AUTH_USERNAME:-}
+      Auth__Password: ${KONTAINR_AUTH_PASSWORD:-}
+
+  kontainr-proxy:
+    image: fennch/labby-kontainr-proxy:latest
+    container_name: kontainr-proxy
+    ports:
+      - "5124:8080"
+    restart: unless-stopped
+    depends_on:
+      - kontainr
+
+volumes:
+  labby-data:
+  kontainr-data:

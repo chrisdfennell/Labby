@@ -196,6 +196,23 @@ Labby is then at `http://<nas-ip>:5123`. Notes:
 - Kontainr mounts the NAS's Docker socket, so it manages Container Station's own containers — no remote-host setup needed.
 - To update: rebuild + re-save the tar on the PC, `docker load` again, then `docker compose -f docker-compose.nas.yml up -d`.
 
+### Pull-based updates (Docker Hub)
+
+A GitHub Actions workflow builds and pushes `fennch/labby` (and the kontainr proxy image) on every commit to main. With the repo secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` set, the NAS never has to compile anything:
+
+```
+docker compose -f docker-compose.hub.yml pull
+docker compose -f docker-compose.hub.yml up -d
+```
+
+### HTTPS via a reverse proxy
+
+Labby serves plain HTTP; for HTTPS (which unlocks real PWA install and the clipboard API), front it with a proxy like nginx-proxy-manager:
+
+1. In NPM, add a proxy host: domain of your choice → scheme `http`, forward host `192.168.86.57` (or your NAS IP), forward port `5123`. Enable *Websockets support* (Blazor needs it).
+2. Attach a certificate (Let's Encrypt DNS challenge works for real domains; a self-signed cert works LAN-only).
+3. Labby already honors `X-Forwarded-Proto`/`X-Forwarded-For`, so cookies and redirects behave behind the proxy.
+
 ## Health checks
 
 `GET /healthz` returns `200 ok` without authentication, and the Docker image has a built-in `HEALTHCHECK` against it — `docker ps` shows the container as `healthy`/`unhealthy`, and you can point Uptime Kuma (or a Labby dashboard tile on another instance) at it.

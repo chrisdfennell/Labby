@@ -123,7 +123,20 @@ builder.Services.AddSingleton<BackupService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BackupService>());
 builder.Services.AddHostedService<NasHealthMonitor>();
 
+// Behind a TLS-terminating reverse proxy (e.g. nginx-proxy-manager), honor its
+// scheme/host headers so cookies and redirects work over https.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                               | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+    // Home lab: the proxy lives on the LAN, not a fixed address.
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 if (!app.Environment.IsDevelopment())
 {
