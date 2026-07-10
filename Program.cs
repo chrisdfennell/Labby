@@ -182,6 +182,33 @@ app.MapPost("/logout", async (HttpContext context, IAntiforgery antiforgery) =>
     return Results.LocalRedirect("/login");
 });
 
+// Relays a NAS file to the browser, forwarding Range requests both ways so video
+// seeking and resumable downloads work (QTS answers 206 + Content-Range itself).
+static async Task RelayNasFileAsync(HttpContext context, QnapFileStation fileStation,
+    string folderPath, string fileName, string? contentType, bool attachment, CancellationToken ct)
+{
+    var range = context.Request.Headers.Range.ToString();
+    var upstream = await fileStation.OpenDownloadAsync(folderPath, fileName, range.Length > 0 ? range : null, ct);
+    context.Response.RegisterForDispose(upstream);
+
+    var response = context.Response;
+    response.StatusCode = (int)upstream.StatusCode; // 200, or 206 for a satisfied range
+    response.Headers.AcceptRanges = "bytes";
+    if (upstream.Content.Headers.ContentRange is { } contentRange)
+        response.Headers.ContentRange = contentRange.ToString();
+    if (upstream.Content.Headers.ContentLength is { } length)
+        response.ContentLength = length;
+    response.ContentType = contentType
+        ?? upstream.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+    if (attachment)
+    {
+        var disposition = new Microsoft.Net.Http.Headers.ContentDispositionHeaderValue("attachment");
+        disposition.SetHttpFileName(fileName);
+        response.Headers.ContentDisposition = disposition.ToString();
+    }
+    await upstream.Content.CopyToAsync(response.Body, ct);
+}
+
 // Signed, expiring share links — the HMAC token is the authorization, so no login.
 app.MapGet("/share/{token}", async (string token, ShareLinkService shareLinks, QnapFileStation fileStation, HttpContext context, CancellationToken ct) =>
 {
@@ -190,10 +217,8 @@ app.MapGet("/share/{token}", async (string token, ShareLinkService shareLinks, Q
 
     try
     {
-        var upstream = await fileStation.OpenDownloadAsync(link.FolderPath, link.FileName, ct);
-        context.Response.RegisterForDispose(upstream);
-        var contentType = upstream.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
-        return Results.Stream(await upstream.Content.ReadAsStreamAsync(ct), contentType, fileDownloadName: link.FileName);
+        await RelayNasFileAsync(context, fileStation, link.FolderPath, link.FileName, null, attachment: true, ct);
+        return Results.Empty;
     }
     catch (HttpRequestException)
     {
@@ -222,17 +247,16 @@ var download = app.MapGet("/api/files/download", async (string path, string name
     if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(name) || name.Contains('/') || name.Contains('\\'))
         return Results.BadRequest();
 
-    var upstream = await fileStation.OpenDownloadAsync(path, name, ct);
-    context.Response.RegisterForDispose(upstream);
+    string? contentType = null;
     if (inline)
     {
         // QTS answers octet-stream for everything; the extension knows better.
-        if (!previewTypes.TryGetContentType(name, out var guessed))
-            guessed = "text/plain; charset=utf-8"; // .log, .conf, .yml… render as text
-        return Results.Stream(await upstream.Content.ReadAsStreamAsync(ct), guessed);
+        contentType = previewTypes.TryGetContentType(name, out var guessed)
+            ? guessed
+            : "text/plain; charset=utf-8"; // .log, .conf, .yml… render as text
     }
-    var contentType = upstream.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
-    return Results.Stream(await upstream.Content.ReadAsStreamAsync(ct), contentType, fileDownloadName: name);
+    await RelayNasFileAsync(context, fileStation, path, name, contentType, attachment: !inline, ct);
+    return Results.Empty;
 });
 if (authEnabled)
     download.RequireAuthorization();

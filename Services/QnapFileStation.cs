@@ -63,14 +63,21 @@ public sealed class QnapFileStation(IHttpClientFactory httpFactory, QnapClient q
             .ToList();
     }
 
-    /// <summary>Streams a file from the NAS; used by the download endpoint.</summary>
-    public async Task<HttpResponseMessage> OpenDownloadAsync(string folderPath, string fileName, CancellationToken ct = default)
+    /// <summary>
+    /// Streams a file from the NAS; used by the download endpoint. QTS honors HTTP
+    /// Range requests (206 + Content-Range), so passing the browser's Range header
+    /// through makes video seeking and resumable downloads work.
+    /// </summary>
+    public async Task<HttpResponseMessage> OpenDownloadAsync(string folderPath, string fileName, string? rangeHeader = null, CancellationToken ct = default)
     {
         var sid = await qnap.GetSidAsync(ct);
         var url = $"cgi-bin/filemanager/utilRequest.cgi?func=download&isfolder=0&source_total=1" +
                   $"&source_path={Uri.EscapeDataString(folderPath)}&source_file={Uri.EscapeDataString(fileName)}&sid={sid}";
         var http = httpFactory.CreateClient(QnapClient.HttpClientName);
-        var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (!string.IsNullOrEmpty(rangeHeader))
+            request.Headers.TryAddWithoutValidation("Range", rangeHeader);
+        var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
         return response;
     }
