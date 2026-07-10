@@ -89,13 +89,25 @@ public sealed class AmbientWeatherClient(IHttpClientFactory httpFactory, IOption
             observedAt = DateTimeOffset.FromUnixTimeMilliseconds(dateUtc.GetInt64());
 
         string? stationName = null;
-        if (device.TryGetProperty("info", out var info) && info.TryGetProperty("name", out var name))
-            stationName = name.GetString();
+        double? lat = null, lon = null;
+        if (device.TryGetProperty("info", out var info))
+        {
+            if (info.TryGetProperty("name", out var name))
+                stationName = name.GetString();
+            // info.coords.coords = { lat, lon } — used to center the radar map.
+            if (info.TryGetProperty("coords", out var outer) && outer.TryGetProperty("coords", out var coords))
+            {
+                lat = Num(coords, "lat");
+                lon = Num(coords, "lon");
+            }
+        }
 
         return new WeatherReading
         {
             ObservedAt = observedAt.ToLocalTime(),
             StationName = stationName,
+            StationLat = lat,
+            StationLon = lon,
             TempF = Num(data, "tempf"),
             FeelsLikeF = Num(data, "feelsLike"),
             DewPointF = Num(data, "dewPoint"),

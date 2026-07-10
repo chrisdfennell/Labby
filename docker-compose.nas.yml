@@ -36,6 +36,8 @@ services:
       AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
       # Loaded by the browser: use the NAS LAN IP, e.g. http://192.168.86.57:5124
       Kontainr__Url: ${KONTAINR_URL:-}
+      # Web terminal embed (also browser-loaded); leave empty to hide the Terminal page.
+      Terminal__Url: ${TERMINAL_URL:-}
       # Media page integrations — all optional.
       Media__Plex__Url: ${PLEX_BASE_URL:-}
       Media__Plex__ApiKey: ${PLEX_TOKEN:-}

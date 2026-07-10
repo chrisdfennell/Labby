@@ -2,7 +2,8 @@
 @rendermode InteractiveServer
 @inject AmbientWeatherClient WeatherClient
 @inject WeatherHistoryService History
-@implements IDisposable
+@inject IJSRuntime Js
+@implements IAsyncDisposable
 
 <PageTitle>Labby — Weather</PageTitle>
 
@@ -44,6 +45,22 @@ else
                     </div>
                 </div>
             }
+        </div>
+    }
+
+    @if (_reading is { StationLat: not null, StationLon: not null })
+    {
+        <div class="card mt-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>🛰️ Radar — last 2h + short forecast</span>
+                <span class="radar-controls">
+                    <span id="radar-map-time" class="text-muted"></span>
+                    <button type="button" id="radar-map-play" class="radar-play" title="Play/pause">⏸</button>
+                </span>
+            </div>
+            <div class="card-body p-0">
+                <div id="radar-map" class="radar-map"></div>
+            </div>
         </div>
     }
 
@@ -191,6 +208,8 @@ else
 
     private sealed record TodayStats(double? High, double? Low, double? PeakGust, string PeakGustDir, double? Rain, double? MaxUv, double? MaxSolar);
 
+    private bool _radarStarted;
+
     // History is a local SQLite read, so it can safely load during prerender and the
     // charts arrive with the first HTML. The live reading (external API) still waits
     // for the first interactive render so prerendering never blocks on it.
@@ -202,15 +221,24 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
-            return;
-        await LoadAsync();
-        StateHasChanged();
-        _refreshTimer = new Timer(_ => _ = InvokeAsync(async () =>
+        if (firstRender)
         {
             await LoadAsync();
             StateHasChanged();
-        }), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+            _refreshTimer = new Timer(_ => _ = InvokeAsync(async () =>
+            {
+                await LoadAsync();
+                StateHasChanged();
+            }), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+            return;
+        }
+
+        // Leaflet needs its container in the DOM, which only exists once coords are known.
+        if (!_radarStarted && _reading is { StationLat: { } lat, StationLon: { } lon })
+        {
+            _radarStarted = true;
+            await Js.InvokeVoidAsync("labbyRadar.init", "radar-map", lat, lon);
+        }
     }
 
     private async Task LoadAsync()
@@ -350,5 +378,16 @@ else
     private static string Pct(double? value) => value is { } v ? $"{v:0}%" : "—";
     private static string Inches(double? value) => value is { } v ? $"{v:0.##} in" : "—";
 
-    public void Dispose() => _refreshTimer?.Dispose();
+    public async ValueTask DisposeAsync()
+    {
+        _refreshTimer?.Dispose();
+        try
+        {
+            await Js.InvokeVoidAsync("labbyRadar.destroy");
+        }
+        catch (Exception)
+        {
+            // Circuit already gone — nothing to clean up client-side.
+        }
+    }
 }

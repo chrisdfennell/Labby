@@ -80,6 +80,8 @@ public sealed record WeatherReading
 {
     public DateTimeOffset ObservedAt { get; init; }
     public string? StationName { get; init; }
+    public double? StationLat { get; init; }
+    public double? StationLon { get; init; }
     public double? TempF { get; init; }
     public double? FeelsLikeF { get; init; }
     public double? DewPointF { get; init; }

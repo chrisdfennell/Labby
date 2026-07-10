@@ -43,6 +43,16 @@ public sealed class KontainrOptions
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
 }
 
+public sealed class TerminalOptions
+{
+    public const string SectionName = "Terminal";
+
+    /// <summary>Browser-reachable URL of a web terminal (iframe src, so it must resolve from the client).</summary>
+    public string Url { get; set; } = "";
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
+}
+
 /// <summary>Media-stack integrations shown on the Media page. Each source is optional.</summary>
 public sealed class MediaOptions
 {

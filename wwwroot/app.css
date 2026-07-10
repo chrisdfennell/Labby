@@ -767,6 +767,49 @@ code {
     margin: 0;
 }
 
+/* ── Weather radar ───────────────────────────────────────────────────── */
+.radar-map {
+    height: 30rem;
+    border-radius: 0 0 0.75rem 0.75rem;
+    background: #060a0f;
+}
+
+.radar-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.radar-play {
+    background: none;
+    border: 1px solid var(--lab-border);
+    border-radius: 4px;
+    color: var(--lab-text);
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0 0.5rem;
+}
+
+    .radar-play:hover {
+        border-color: var(--lab-accent);
+        color: var(--lab-accent);
+    }
+
+.radar-error {
+    position: absolute;
+    inset: auto 0 1rem 0;
+    text-align: center;
+    color: var(--lab-red);
+    z-index: 500;
+    font-size: 0.85rem;
+}
+
+.leaflet-container {
+    font-family: inherit;
+}
+
 /* ── Kontainr embed ──────────────────────────────────────────────────── */
 .kontainr-frame-wrap {
     border: 1px solid var(--lab-border);
