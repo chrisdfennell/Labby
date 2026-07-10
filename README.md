@@ -9,8 +9,8 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **Dashboard** (`/`) | Weather, NAS, and media-glance cards (auto-refreshing every 60s), plus tiles for every configured service with live up/down status, latency, a one-hour sparkline, uptime %, up/down duration, and a Wake-on-LAN button for down services with a configured MAC (polled every 30s) |
 | **Storage** (`/storage`) | NAS model/firmware/uptime, CPU/RAM, temperatures, volume usage bars, and per-disk SMART health |
 | **Files** (`/files`) | Browse QNAP shares and folders, download files through the app, upload files, and create folders |
-| **Containers** (`/containers`) | Embedded [Kontainr](https://github.com/chrisdfennell/Kontainr) dashboard (full Docker management), with the QNAP Container Station start/stop table as a second tab |
-| **Media** (`/media`) | Plex now-playing (via Tautulli), recently added (Plex), active downloads with speeds (qBittorrent + NZBGet), upcoming episodes/movies (Sonarr/Radarr calendars), and pending Overseerr requests — auto-refreshing every 15s |
+| **Containers** (`/containers`) | Embedded [Kontainr](https://github.com/chrisdfennell/Kontainr) dashboard (full Docker management), plus a Container Station tab with per-container CPU/RAM, start/stop/restart, and a logs viewer (needs the docker.sock mount from the compose file) |
+| **Media** (`/media`) | Plex now-playing (via Tautulli), recently added (Plex), active downloads with speeds and pause/resume (qBittorrent + NZBGet), the Sonarr/Radarr download queue, upcoming episodes/movies, and pending Overseerr requests — auto-refreshing every 15s |
 | **Uptime** (`/uptime`) | Status-page view of every dashboard service: uptime % (24h/7d), a 30-day daily bar strip, and an outage log with durations — history persisted to SQLite |
 | **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, plus 24h/48h/7d history charts (temperature, wind, humidity, barometer) logged to a small SQLite file every 5 minutes |
 
@@ -73,6 +73,17 @@ Each entry becomes a tile with a health check (any HTTP response below 500 count
 ```
 
 `HealthUrl` is optional — use it when the probe should hit a different URL than the one the tile opens. Add `"Mac": "AA:BB:CC:DD:EE:FF"` to a service and its tile grows a ⚡ wake button whenever it's down (Wake-on-LAN broadcast — works for machines whose BIOS/NIC have WoL enabled).
+
+Plain bookmarks (no health checks) can sit in a strip above the service tiles:
+
+```jsonc
+"Dashboard": {
+  "Links": [
+    { "Name": "Router", "Url": "http://192.168.1.1", "Icon": "🌐" },
+    { "Name": "Cloudflare", "Url": "https://dash.cloudflare.com", "Icon": "☁️" }
+  ]
+}
+```
 
 [NMMiner](https://github.com/NMminer1024/NMMiner)-style Bitcoin lottery miners get their own dashboard section with live hashrate, shares, best difficulty, uptime, and Wi-Fi signal:
 

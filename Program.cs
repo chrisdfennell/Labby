@@ -104,6 +104,7 @@ builder.Services.AddSingleton<WeatherHistoryService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WeatherHistoryService>());
 builder.Services.AddSingleton<WakeOnLanService>();
 builder.Services.AddSingleton<MinerClient>();
+builder.Services.AddSingleton<DockerEngineClient>();
 builder.Services.AddHostedService<NasHealthMonitor>();
 
 var app = builder.Build();

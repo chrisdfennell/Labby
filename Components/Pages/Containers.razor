@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using Microsoft.Extensions.Options
 @inject ContainerStationClient ContainerStation
+@inject DockerEngineClient Docker
 @inject IOptions<KontainrOptions> KontainrConfig
 
 <PageTitle>Labby — Containers</PageTitle>
@@ -63,7 +64,7 @@ else
     </div>
     <table class="table table-hover align-middle">
         <thead>
-            <tr><th>Name</th><th>Image</th><th>State</th><th class="text-end">Actions</th></tr>
+            <tr><th>Name</th><th>Image</th><th>State</th><th class="text-end">CPU</th><th class="text-end">RAM</th><th class="text-end">Actions</th></tr>
         </thead>
         <tbody>
             @foreach (var c in _containers)
@@ -74,21 +75,44 @@ else
                     <td>
                         <span class="badge @(c.IsRunning ? "bg-success" : "bg-secondary")">@c.State</span>
                     </td>
-                    <td class="text-end">
+                    <td class="text-end text-muted">@(c.IsRunning && c.CpuPercent is { } cpu ? $"{cpu:0.#}%" : "—")</td>
+                    <td class="text-end text-muted">@(c.IsRunning && c.MemoryPercent is { } mem ? $"{mem:0.#}%" : "—")</td>
+                    <td class="text-end text-nowrap">
                         @if (_busy.Contains(c.Id))
                         {
                             <span class="text-muted small">working…</span>
                         }
-                        else if (c.IsRunning)
-                        {
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => StopAsync(c)">Stop</button>
-                        }
                         else
                         {
-                            <button class="btn btn-sm btn-outline-success" @onclick="() => StartAsync(c)">Start</button>
+                            @if (Docker.IsAvailable && c.Type == "docker")
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowLogsAsync(c)">Logs</button>
+                            }
+                            @if (c.IsRunning)
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => RestartAsync(c)">Restart</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => StopAsync(c)">Stop</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-success" @onclick="() => StartAsync(c)">Start</button>
+                            }
                         }
                     </td>
                 </tr>
+                @if (_logsFor == c.Id)
+                {
+                    <tr>
+                        <td colspan="6" class="container-logs-cell">
+                            <div class="d-flex align-items-center mb-1">
+                                <span class="text-muted small">last 200 lines of <code>@c.Name</code></span>
+                                <button class="btn btn-sm btn-outline-secondary ms-auto me-1" @onclick="() => ShowLogsAsync(c)">Refresh</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _logsFor = null">Close</button>
+                            </div>
+                            <pre class="container-logs">@(_logs ?? "Loading…")</pre>
+                        </td>
+                    </tr>
+                }
             }
         </tbody>
     </table>
@@ -145,6 +169,28 @@ else
 
     private Task StopAsync(ContainerInfo container) =>
         RunActionAsync(container, () => ContainerStation.StopAsync(container));
+
+    private Task RestartAsync(ContainerInfo container) =>
+        RunActionAsync(container, () => ContainerStation.RestartAsync(container));
+
+    private string? _logsFor;
+    private string? _logs;
+
+    private async Task ShowLogsAsync(ContainerInfo container)
+    {
+        _logsFor = container.Id;
+        _logs = null;
+        StateHasChanged();
+        try
+        {
+            var logs = await Docker.GetLogsAsync(container.Id);
+            _logs = string.IsNullOrWhiteSpace(logs) ? "(no output)" : logs;
+        }
+        catch (Exception ex)
+        {
+            _logs = $"Could not read logs: {ex.GetBaseException().Message}";
+        }
+    }
 
     private async Task RunActionAsync(ContainerInfo container, Func<Task> action)
     {

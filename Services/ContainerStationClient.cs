@@ -10,7 +10,7 @@ namespace Labby.Services;
 /// still ships the v1 surface for compatibility on most firmware). Uses its own
 /// cookie-based login, separate from the QTS sid session.
 /// </summary>
-public sealed class ContainerStationClient(IHttpClientFactory httpFactory, IOptions<QnapOptions> options, ILogger<ContainerStationClient> logger)
+public sealed class ContainerStationClient(IHttpClientFactory httpFactory, IOptions<QnapOptions> options, QnapClient qnap, ILogger<ContainerStationClient> logger)
 {
     public const string HttpClientName = "qnap-container-station";
 
@@ -20,27 +20,55 @@ public sealed class ContainerStationClient(IHttpClientFactory httpFactory, IOpti
 
     public bool IsConfigured => _options.IsConfigured;
 
+    /// <summary>
+    /// Lists containers via the v3 API (the QTS sid doubles as its bearer token),
+    /// which also reports live CPU/memory usage per container.
+    /// </summary>
     public async Task<IReadOnlyList<ContainerInfo>> GetContainersAsync(CancellationToken ct = default)
     {
-        var body = await SendAsync(HttpMethod.Get, "container-station/api/v1/container", ct);
-        using var doc = JsonDocument.Parse(body);
+        var http = httpFactory.CreateClient(HttpClientName);
 
-        var containers = new List<ContainerInfo>();
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
+        async Task<HttpResponseMessage> ListAsync()
         {
-            foreach (var item in doc.RootElement.EnumerateArray())
-            {
-                containers.Add(new ContainerInfo
-                {
-                    Id = GetString(item, "id"),
-                    Name = GetString(item, "name"),
-                    Image = GetString(item, "image"),
-                    State = GetString(item, "state"),
-                    Type = GetString(item, "type") is { Length: > 0 } t ? t : "docker",
-                });
-            }
+            using var request = new HttpRequestMessage(HttpMethod.Get, "container-station/api/v3/containers");
+            request.Headers.Add("Authorization", $"Bearer {await qnap.GetSidAsync(ct)}");
+            return await http.SendAsync(request, ct);
         }
-        return containers.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+        var response = await ListAsync();
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            response.Dispose();
+            qnap.InvalidateSession();
+            response = await ListAsync();
+        }
+
+        using (response)
+        {
+            response.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            var containers = new List<ContainerInfo>();
+            if (doc.RootElement.TryGetProperty("data", out var data)
+                && data.TryGetProperty("items", out var items)
+                && items.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    containers.Add(new ContainerInfo
+                    {
+                        Id = GetString(item, "id"),
+                        Name = GetString(item, "name"),
+                        Image = GetString(item, "image"),
+                        State = GetString(item, "status"),
+                        Type = GetString(item, "type") is { Length: > 0 } t ? t : "docker",
+                        // v3 reports both as fractions of the whole NAS.
+                        CpuPercent = GetNumber(item, "cpu") is { } cpu ? Math.Round(cpu * 100, 1) : null,
+                        MemoryPercent = GetNumber(item, "memory") is { } mem ? Math.Round(mem * 100, 1) : null,
+                    });
+                }
+            }
+            return containers.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
     }
 
     public Task StartAsync(ContainerInfo container, CancellationToken ct = default) =>
@@ -48,6 +76,9 @@ public sealed class ContainerStationClient(IHttpClientFactory httpFactory, IOpti
 
     public Task StopAsync(ContainerInfo container, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Put, $"container-station/api/v1/container/{container.Type}/{Uri.EscapeDataString(container.Id)}/stop", ct);
+
+    public Task RestartAsync(ContainerInfo container, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"container-station/api/v1/container/{container.Type}/{Uri.EscapeDataString(container.Id)}/restart", ct);
 
     private async Task<string> SendAsync(HttpMethod method, string path, CancellationToken ct)
     {
@@ -109,4 +140,9 @@ public sealed class ContainerStationClient(IHttpClientFactory httpFactory, IOpti
         element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? ""
             : "";
+
+    private static double? GetNumber(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number
+            ? value.GetDouble()
+            : null;
 }

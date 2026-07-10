@@ -50,6 +50,8 @@ public sealed record ContainerInfo
     public string Image { get; init; } = "";
     public string State { get; init; } = "";
     public string Type { get; init; } = "docker";
+    public double? CpuPercent { get; init; }
+    public double? MemoryPercent { get; init; }
     public bool IsRunning => State.Equals("running", StringComparison.OrdinalIgnoreCase);
 }
 

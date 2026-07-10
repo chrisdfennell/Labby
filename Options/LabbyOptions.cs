@@ -131,6 +131,16 @@ public sealed class DashboardOptions
 
     /// <summary>NMMiner-style devices shown in the dashboard's Miners section.</summary>
     public List<MinerEndpoint> Miners { get; set; } = [];
+
+    /// <summary>Plain bookmarks shown as a strip on the dashboard — no health checks.</summary>
+    public List<QuickLink> Links { get; set; } = [];
+}
+
+public sealed class QuickLink
+{
+    public string Name { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string Icon { get; set; } = "🔗";
 }
 
 public sealed class MinerEndpoint

@@ -130,6 +130,31 @@ code {
     font-family: var(--lab-mono);
 }
 
+.quick-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.quick-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.8rem;
+    background: var(--lab-panel-deep);
+    border: 1px solid var(--lab-border);
+    border-radius: 2rem;
+    color: var(--lab-text);
+    text-decoration: none;
+    font-family: var(--lab-mono);
+    font-size: 0.8rem;
+}
+
+    .quick-link:hover {
+        border-color: var(--lab-accent);
+        color: var(--lab-accent);
+    }
+
 .miner-hashrate {
     font-family: var(--lab-mono);
     color: var(--lab-accent);
@@ -390,6 +415,23 @@ code {
         border-top: 1px solid var(--lab-border);
     }
 
+.dl-toggle {
+    background: none;
+    border: 1px solid var(--lab-border);
+    border-radius: 4px;
+    color: var(--lab-text);
+    font-size: 0.7rem;
+    line-height: 1.2;
+    padding: 0 0.35rem;
+    margin-left: 0.4rem;
+    cursor: pointer;
+}
+
+    .dl-toggle:hover:not(:disabled) {
+        border-color: var(--lab-accent);
+        color: var(--lab-accent);
+    }
+
 .media-progress {
     height: 4px;
     margin-top: 0.35rem;
@@ -514,6 +556,25 @@ code {
 .content {
     padding-top: 1.4rem;
     padding-bottom: 2rem;
+}
+
+/* ── Container logs ──────────────────────────────────────────────────── */
+.container-logs-cell {
+    background: var(--lab-panel-deep);
+}
+
+.container-logs {
+    max-height: 22rem;
+    overflow: auto;
+    background: #060a0f;
+    border: 1px solid var(--lab-border);
+    border-radius: 0.5rem;
+    padding: 0.7rem;
+    font-size: 0.76rem;
+    color: var(--lab-text);
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
 }
 
 /* ── Kontainr embed ──────────────────────────────────────────────────── */

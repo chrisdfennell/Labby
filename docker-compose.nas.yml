@@ -56,6 +56,8 @@ services:
     volumes:
       # Weather history database survives container rebuilds.
       - labby-data:/app/data
+      # Enables the container-logs viewer on the Containers page.
+      - /var/run/docker.sock:/var/run/docker.sock
 
   kontainr:
     image: fennch/kontainr:latest

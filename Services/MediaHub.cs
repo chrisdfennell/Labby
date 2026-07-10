@@ -25,6 +25,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     private readonly Cached<UpcomingSnapshot> _movies = new();
     private readonly Cached<RequestsSnapshot> _requests = new();
     private readonly Cached<RecentlyAddedSnapshot> _recent = new();
+    private readonly Cached<QueueSnapshot> _queue = new();
     private readonly ConcurrentDictionary<string, string> _titleCache = new();
     private string? _qbitSid;
 
@@ -53,6 +54,60 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
 
     public Task<RecentlyAddedSnapshot> GetRecentlyAddedAsync(CancellationToken ct = default) =>
         GetCachedAsync(_recent, CalendarTtl, FetchRecentlyAddedAsync, ct);
+
+    public Task<QueueSnapshot> GetQueueAsync(CancellationToken ct = default) =>
+        GetCachedAsync(_queue, LiveTtl, FetchQueueAsync, ct);
+
+    /// <summary>Pause or resume a download and drop the cache so the next poll shows it.</summary>
+    public async Task SetDownloadPausedAsync(DownloadItem item, bool pause, CancellationToken ct = default)
+    {
+        if (item.Source == "qBittorrent")
+        {
+            var baseUrl = _options.Qbittorrent.Url.TrimEnd('/');
+            var http = httpFactory.CreateClient(HttpClientName);
+
+            async Task<HttpResponseMessage> ActAsync()
+            {
+                using var content = new FormUrlEncodedContent([new KeyValuePair<string, string>("hashes", item.Id)]);
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v2/torrents/{(pause ? "pause" : "resume")}")
+                {
+                    Content = content,
+                };
+                if (_qbitSid is { } sid)
+                    request.Headers.Add("Cookie", $"SID={sid}");
+                return await http.SendAsync(request, ct);
+            }
+
+            var response = await ActAsync();
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden && !string.IsNullOrEmpty(_options.Qbittorrent.Password))
+            {
+                response.Dispose();
+                await QbitLoginAsync(http, baseUrl, ct);
+                response = await ActAsync();
+            }
+            using (response)
+            {
+                response.EnsureSuccessStatusCode();
+            }
+        }
+        else if (item.Source == "NZBGet")
+        {
+            var baseUrl = _options.Nzbget.Url.TrimEnd('/');
+            var auth = string.IsNullOrEmpty(_options.Nzbget.Username)
+                ? ""
+                : $"/{Uri.EscapeDataString(_options.Nzbget.Username)}:{Uri.EscapeDataString(_options.Nzbget.Password)}";
+            var http = httpFactory.CreateClient(HttpClientName);
+            using var content = JsonContent.Create(new
+            {
+                method = "editqueue",
+                @params = new object[] { pause ? "GroupPause" : "GroupResume", "", new[] { long.Parse(item.Id) } },
+            });
+            using var response = await http.PostAsync($"{baseUrl}{auth}/jsonrpc", content, ct);
+            response.EnsureSuccessStatusCode();
+        }
+
+        _downloads.At = DateTimeOffset.MinValue; // force a fresh fetch on the next read
+    }
 
     // ── Tautulli ─────────────────────────────────────────────────────────
 
@@ -263,15 +318,19 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             foreach (var t in doc.RootElement.EnumerateArray())
             {
                 var eta = (long)(Num(t, "eta") ?? 0);
+                var state = Str(t, "state");
                 items.Add(new DownloadItem
                 {
+                    Id = Str(t, "hash"),
                     Name = Str(t, "name"),
                     Source = "qBittorrent",
                     ProgressPercent = Math.Round((Num(t, "progress") ?? 0) * 100, 1),
                     SizeBytes = (long)(Num(t, "size") ?? 0),
                     SpeedBps = (long)(Num(t, "dlspeed") ?? 0),
                     Eta = eta is > 0 and < 8_640_000 ? TimeSpan.FromSeconds(eta) : null,
-                    State = Str(t, "state"),
+                    State = state,
+                    IsPaused = state.Contains("paused", StringComparison.OrdinalIgnoreCase)
+                               || state.Contains("stopped", StringComparison.OrdinalIgnoreCase),
                 });
             }
 
@@ -315,18 +374,102 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
         {
             var totalMb = Num(g, "FileSizeMB") ?? 0;
             var remainingMb = Num(g, "RemainingSizeMB") ?? 0;
+            var status = Str(g, "Status").ToLowerInvariant();
             items.Add(new DownloadItem
             {
+                Id = ((long)(Num(g, "NZBID") ?? 0)).ToString(),
                 Name = Str(g, "NZBName"),
                 Source = "NZBGet",
                 ProgressPercent = totalMb > 0 ? Math.Round((totalMb - remainingMb) / totalMb * 100, 1) : 0,
                 SizeBytes = (long)(totalMb * 1024 * 1024),
                 SpeedBps = rate, // NZBGet reports one global rate, not per-item
                 Eta = rate > 0 ? TimeSpan.FromSeconds(remainingMb * 1024 * 1024 / rate) : null,
-                State = Str(g, "Status").ToLowerInvariant(),
+                State = status,
+                IsPaused = status.Contains("paused"),
             });
         }
         return (items, rate);
+    }
+
+    // ── Sonarr/Radarr queues ─────────────────────────────────────────────
+
+    private async Task<QueueSnapshot> FetchQueueAsync(CancellationToken ct)
+    {
+        var items = new List<QueueItem>();
+        string? sonarrError = null, radarrError = null;
+
+        if (_options.Sonarr.IsConfigured)
+        {
+            try
+            {
+                using var doc = await GetJsonAsync(
+                    $"{_options.Sonarr.Url.TrimEnd('/')}/api/v3/queue?pageSize=30&includeSeries=true&includeEpisode=true",
+                    ct, apiKey: _options.Sonarr.ApiKey);
+                foreach (var r in doc.RootElement.GetProperty("records").EnumerateArray())
+                {
+                    var series = r.TryGetProperty("series", out var s) ? Str(s, "title") : "";
+                    var episode = r.TryGetProperty("episode", out var e)
+                        ? $" S{Num(e, "seasonNumber"):00}E{Num(e, "episodeNumber"):00}"
+                        : "";
+                    items.Add(ToQueueItem(r, "Sonarr", $"{series}{episode}"));
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Sonarr queue fetch failed");
+                sonarrError = Describe(ex);
+            }
+        }
+
+        if (_options.Radarr.IsConfigured)
+        {
+            try
+            {
+                using var doc = await GetJsonAsync(
+                    $"{_options.Radarr.Url.TrimEnd('/')}/api/v3/queue?pageSize=30&includeMovie=true",
+                    ct, apiKey: _options.Radarr.ApiKey);
+                foreach (var r in doc.RootElement.GetProperty("records").EnumerateArray())
+                {
+                    var movie = r.TryGetProperty("movie", out var m) ? Str(m, "title") : "";
+                    items.Add(ToQueueItem(r, "Radarr", movie));
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Radarr queue fetch failed");
+                radarrError = Describe(ex);
+            }
+        }
+
+        return new QueueSnapshot
+        {
+            Items = items.OrderBy(i => i.Status == "completed").ThenBy(i => i.Title).ToList(),
+            SonarrError = sonarrError,
+            RadarrError = radarrError,
+        };
+    }
+
+    private static QueueItem ToQueueItem(JsonElement record, string source, string knownTitle)
+    {
+        var size = Num(record, "size") ?? 0;
+        var left = Num(record, "sizeleft") ?? 0;
+        return new QueueItem
+        {
+            Title = knownTitle is { Length: > 0 } ? knownTitle : Str(record, "title"),
+            Source = source,
+            Status = Str(record, "status"),
+            TimeLeft = Str(record, "timeleft") is { Length: > 0 } t ? t : null,
+            ProgressPercent = size > 0 ? Math.Round((size - left) / size * 100, 1) : 0,
+            SizeBytes = (long)size,
+        };
     }
 
     // ── Plex ─────────────────────────────────────────────────────────────

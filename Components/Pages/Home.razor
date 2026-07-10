@@ -7,6 +7,7 @@
 @inject MediaHub Media
 @inject WakeOnLanService Wol
 @inject MinerClient Miners
+@inject Microsoft.Extensions.Options.IOptions<DashboardOptions> Dashboard
 @implements IDisposable
 
 <PageTitle>Labby — Dashboard</PageTitle>
@@ -92,6 +93,18 @@
         </div>
     }
 </div>
+
+@if (Dashboard.Value.Links.Count > 0)
+{
+    <div class="quick-links mb-4">
+        @foreach (var link in Dashboard.Value.Links)
+        {
+            <a class="quick-link" href="@link.Url" target="_blank" rel="noreferrer">
+                <span aria-hidden="true">@link.Icon</span> @link.Name
+            </a>
+        }
+    </div>
+}
 
 <h4 class="mb-3">Services</h4>
 @if (_services.Count == 0)

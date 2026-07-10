@@ -30,6 +30,8 @@ public sealed record DownloadsSnapshot
 
 public sealed record DownloadItem
 {
+    /// <summary>qBittorrent hash or NZBGet group id — used for pause/resume.</summary>
+    public string Id { get; init; } = "";
     public string Name { get; init; } = "";
     public string Source { get; init; } = "";
     public double ProgressPercent { get; init; }
@@ -37,6 +39,25 @@ public sealed record DownloadItem
     public long SpeedBps { get; init; }
     public TimeSpan? Eta { get; init; }
     public string State { get; init; } = "";
+    public bool IsPaused { get; init; }
+}
+
+/// <summary>Sonarr/Radarr download queues.</summary>
+public sealed record QueueSnapshot
+{
+    public IReadOnlyList<QueueItem> Items { get; init; } = [];
+    public string? SonarrError { get; init; }
+    public string? RadarrError { get; init; }
+}
+
+public sealed record QueueItem
+{
+    public string Title { get; init; } = "";
+    public string Source { get; init; } = "";
+    public string Status { get; init; } = "";
+    public string? TimeLeft { get; init; }
+    public double ProgressPercent { get; init; }
+    public long SizeBytes { get; init; }
 }
 
 /// <summary>Upcoming releases from the Sonarr and Radarr calendars.</summary>
