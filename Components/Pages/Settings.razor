@@ -4,6 +4,8 @@
 @inject AlertNotifier Alerts
 @inject MetricsStore Metrics
 @inject BackupService Backups
+@inject UpdateService Updates
+@inject DigestService Digest
 @inject IOptions<BackupOptions> BackupConfig
 @inject IJSRuntime Js
 
@@ -45,6 +47,11 @@
                     @(_testSending ? "sending…" : _testSent ? "sent ✓ — check your phone" : "🧪 Send test alert")
                 </button>
                 <hr class="my-2" />
+                <button class="btn btn-sm btn-outline-secondary" disabled="@(!Alerts.IsEnabled || _digestSending)"
+                        @onclick="SendDigestAsync">
+                    @(_digestSending ? "sending…" : "☀️ Send digest now")
+                </button>
+                <hr class="my-2" />
                 @if (_snoozedUntil is { } until)
                 {
                     <p class="small mb-2"><span class="state-warn">🔇 Snoozed until @until.ToString("MMM d · HH:mm")</span> — alerts are logged but not delivered.</p>
@@ -79,6 +86,47 @@
                     }
                 </p>
                 <a class="btn btn-sm btn-outline-primary" href="/api/backup" target="_blank">⬇ Download backup now</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">🚀 Updates</div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">
+                    Running version: <code>@(Updates.RunningVersion is { Length: 40 } v ? v[..7] : Updates.RunningVersion)</code>
+                    @if (_updateCheck?.LatestVersion is { Length: 40 } latest)
+                    {
+                        <span> · latest: <code>@latest[..7]</code></span>
+                    }
+                </p>
+                @if (!Updates.CanSelfUpdate)
+                {
+                    <p class="text-muted small mb-2">Self-update needs the Docker image build and the docker.sock mount — available on the NAS deployment.</p>
+                }
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" disabled="@(_checkingUpdate || !Updates.CanSelfUpdate)"
+                            @onclick="CheckUpdateAsync">@(_checkingUpdate ? "checking…" : "Check for updates")</button>
+                    @if (_updateCheck is { Error: { } updateError })
+                    {
+                        <span class="text-danger small">@updateError</span>
+                    }
+                    else if (_updateCheck is { UpdateAvailable: true })
+                    {
+                        @if (_updating)
+                        {
+                            <span class="state-warn small">⏳ Updating — Labby will restart in ~30s, then reload this page.</span>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-outline-primary" @onclick="TriggerUpdateAsync">⬆ Update now</button>
+                        }
+                    }
+                    else if (_updateCheck is not null)
+                    {
+                        <span class="state-up small">✓ Up to date</span>
+                    }
+                </div>
             </div>
         </div>
     </div>
@@ -163,6 +211,10 @@
     private readonly HashSet<string> _kioskSelection = ["", "media", "weather", "uptime"];
     private int _kioskSeconds = 20;
     private DateTimeOffset? _snoozedUntil;
+    private bool _digestSending;
+    private bool _checkingUpdate;
+    private bool _updating;
+    private UpdateService.UpdateCheck? _updateCheck;
     private IReadOnlyList<MetricsStore.AlertRecord> _alerts = [];
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -193,6 +245,47 @@
         Js.InvokeVoidAsync("labbyKiosk.start",
             KioskPages.Select(p => p.Path).Where(_kioskSelection.Contains).ToArray(),
             Math.Max(5, _kioskSeconds)).AsTask();
+
+    private async Task SendDigestAsync()
+    {
+        _digestSending = true;
+        try
+        {
+            await Alerts.SendAsync(await Digest.BuildDigestAsync());
+            _alerts = await Metrics.GetAlertsAsync();
+        }
+        finally
+        {
+            _digestSending = false;
+        }
+    }
+
+    private async Task CheckUpdateAsync()
+    {
+        _checkingUpdate = true;
+        try
+        {
+            _updateCheck = await Updates.CheckAsync();
+        }
+        finally
+        {
+            _checkingUpdate = false;
+        }
+    }
+
+    private async Task TriggerUpdateAsync()
+    {
+        _updating = true;
+        try
+        {
+            await Updates.TriggerUpdateAsync();
+        }
+        catch (Exception ex)
+        {
+            _updateCheck = new UpdateService.UpdateCheck(true, _updateCheck?.LatestVersion, ex.GetBaseException().Message);
+            _updating = false;
+        }
+    }
 
     private async Task SnoozeAsync(int hours)
     {

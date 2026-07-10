@@ -121,6 +121,10 @@ builder.Services.AddSingleton<PublicIpMonitor>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PublicIpMonitor>());
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BackupService>());
+builder.Services.AddHttpClient(UpdateService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton<UpdateService>();
+builder.Services.AddSingleton<DigestService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DigestService>());
 builder.Services.AddHostedService<NasHealthMonitor>();
 
 // Behind a TLS-terminating reverse proxy (e.g. nginx-proxy-manager), honor its
@@ -152,6 +156,12 @@ app.UseAntiforgery();
 
 // Liveness probe for Docker/monitoring; always anonymous.
 app.MapGet("/healthz", () => Results.Text("ok")).AllowAnonymous();
+
+// Down-service count for the favicon badge (status.js polls this).
+var statusSummary = app.MapGet("/api/status/summary", (ServiceHealthMonitor health) =>
+    Results.Json(new { down = health.Snapshot.Count(s => s.IsUp == false) }));
+if (authEnabled)
+    statusSummary.RequireAuthorization();
 
 app.MapPost("/logout", async (HttpContext context, IAntiforgery antiforgery) =>
 {

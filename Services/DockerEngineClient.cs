@@ -33,6 +33,49 @@ public sealed class DockerEngineClient
 
     public bool IsAvailable => _http.Value is not null;
 
+    /// <summary>The sha256 repo digest of a local image (what "docker pull" would compare against).</summary>
+    public async Task<string?> GetImageDigestAsync(string image, CancellationToken ct = default)
+    {
+        if (_http.Value is not { } http)
+            return null;
+        using var doc = System.Text.Json.JsonDocument.Parse(
+            await http.GetStringAsync($"images/{Uri.EscapeDataString(image)}/json", ct));
+        if (doc.RootElement.TryGetProperty("RepoDigests", out var digests) && digests.GetArrayLength() > 0)
+        {
+            var full = digests[0].GetString() ?? "";
+            var at = full.IndexOf('@');
+            return at >= 0 ? full[(at + 1)..] : full;
+        }
+        return null;
+    }
+
+    /// <summary>Creates and starts a short-lived helper container (auto-removed on exit).</summary>
+    public async Task RunOneShotAsync(string image, string[] cmd, string[] binds, CancellationToken ct = default)
+    {
+        if (_http.Value is not { } http)
+            throw new InvalidOperationException("Docker socket not available.");
+
+        // Make sure the helper image exists locally (no-op if already pulled).
+        using (var pull = await http.PostAsync($"images/create?fromImage={Uri.EscapeDataString(image)}&tag=latest", null, ct))
+        {
+            await pull.Content.ReadAsStringAsync(ct); // drain the progress stream
+        }
+
+        using var create = await http.PostAsync("containers/create",
+            System.Net.Http.Json.JsonContent.Create(new
+            {
+                Image = $"{image}:latest",
+                Cmd = cmd,
+                HostConfig = new { Binds = binds, AutoRemove = true },
+            }), ct);
+        create.EnsureSuccessStatusCode();
+        using var doc = System.Text.Json.JsonDocument.Parse(await create.Content.ReadAsStringAsync(ct));
+        var id = doc.RootElement.GetProperty("Id").GetString()!;
+
+        using var start = await http.PostAsync($"containers/{id}/start", null, ct);
+        start.EnsureSuccessStatusCode();
+    }
+
     public async Task<string> GetLogsAsync(string containerId, int tail = 200, CancellationToken ct = default)
     {
         if (_http.Value is not { } http)

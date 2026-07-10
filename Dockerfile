@@ -7,6 +7,8 @@ RUN dotnet publish Labby.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
+ARG LABBY_VERSION=dev
+ENV LABBY_VERSION=$LABBY_VERSION
 # librespeed-cli powers the optional scheduled speed tests (Network:SpeedtestHours).
 ADD https://github.com/librespeed/speedtest-cli/releases/download/v1.0.11/librespeed-cli_1.0.11_linux_amd64.tar.gz /tmp/librespeed.tar.gz
 RUN tar xzf /tmp/librespeed.tar.gz -C /usr/local/bin librespeed-cli && rm /tmp/librespeed.tar.gz

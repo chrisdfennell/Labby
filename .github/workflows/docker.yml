@@ -24,6 +24,8 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64
+          build-args: |
+            LABBY_VERSION=${{ github.sha }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/labby:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/labby:${{ github.sha }}

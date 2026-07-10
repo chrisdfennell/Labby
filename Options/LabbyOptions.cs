@@ -149,6 +149,9 @@ public sealed class AlertOptions
     /// <summary>Pushover user (or group) key.</summary>
     public string PushoverUser { get; set; } = "";
 
+    /// <summary>Local hour (0-23) for the good-morning digest; -1 disables it.</summary>
+    public int DigestHour { get; set; } = -1;
+
     /// <summary>NAS health alert when a volume passes this used-% (0 disables).</summary>
     public double VolumeFullPercent { get; set; } = 90;
 

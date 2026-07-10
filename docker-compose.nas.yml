@@ -25,6 +25,8 @@ services:
       # Pushover push notifications (set both to enable; works alongside the webhook).
       Alerts__PushoverToken: ${LABBY_PUSHOVER_TOKEN:-}
       Alerts__PushoverUser: ${LABBY_PUSHOVER_USER:-}
+      # Local hour (0-23) for the good-morning digest; empty disables.
+      Alerts__DigestHour: ${LABBY_DIGEST_HOUR:--1}
       # Qnap__Host is the NAS's own LAN IP — containers can reach QTS through it.
       Qnap__Host: ${QNAP_HOST:-}
       Qnap__Port: ${QNAP_PORT:-8080}

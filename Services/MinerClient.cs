@@ -21,6 +21,37 @@ public sealed class MinerClient(IHttpClientFactory httpFactory, IOptions<Dashboa
 
     public bool AnyConfigured => options.Value.Miners.Count > 0;
 
+    private double? _btcPrice;
+    private DateTimeOffset _btcPriceAt;
+
+    /// <summary>Spot BTC price (Coinbase, no key needed), cached 5 minutes. Null on failure.</summary>
+    public async Task<double?> GetBtcPriceAsync(CancellationToken ct = default)
+    {
+        if (_btcPrice is not null && DateTimeOffset.UtcNow - _btcPriceAt < TimeSpan.FromMinutes(5))
+            return _btcPrice;
+        try
+        {
+            var http = httpFactory.CreateClient(HttpClientName);
+            using var doc = JsonDocument.Parse(
+                await http.GetStringAsync("https://api.coinbase.com/v2/prices/BTC-USD/spot", ct));
+            var amount = doc.RootElement.GetProperty("data").GetProperty("amount").GetString();
+            if (double.TryParse(amount, System.Globalization.CultureInfo.InvariantCulture, out var price))
+            {
+                _btcPrice = price;
+                _btcPriceAt = DateTimeOffset.UtcNow;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "BTC price fetch failed");
+        }
+        return _btcPrice;
+    }
+
     public async Task<IReadOnlyList<MinerStatus>> GetStatusAsync(CancellationToken ct = default)
     {
         if (_cached is { } fresh && DateTimeOffset.UtcNow - _cachedAt < CacheTtl)

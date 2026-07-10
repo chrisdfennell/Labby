@@ -185,7 +185,15 @@
 
 @if (Miners.AnyConfigured)
 {
-    <h4 class="mb-3 mt-4">⛏️ Miners</h4>
+    <div class="d-flex align-items-baseline flex-wrap gap-3 mb-3 mt-4">
+        <h4 class="mb-0">⛏️ Miners</h4>
+        @if (_btcPrice is { } btc)
+        {
+            <span class="text-muted small font-monospace">
+                BTC $@btc.ToString("N0") · a block is worth ≈ $@((btc * BlockRewardBtc).ToString("N0")) 🤞
+            </span>
+        }
+    </div>
     <div class="row g-3">
         @foreach (var m in _miners)
         {
@@ -335,14 +343,19 @@
     private Task LoadCardsAsync() =>
         Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync(), LoadLayoutAsync());
 
+    // Block subsidy after the 2024 halving (until ~2028).
+    private const double BlockRewardBtc = 3.125;
+
     private IReadOnlyList<DateTimeOffset> _minerTimes = [];
     private IReadOnlyList<(string, IReadOnlyList<double?>)> _minerSeries = [];
+    private double? _btcPrice;
 
     private async Task LoadMinersAsync()
     {
         if (!Miners.AnyConfigured)
             return;
         _miners = await Miners.GetStatusAsync();
+        _btcPrice = await Miners.GetBtcPriceAsync();
 
         // Hashrate history for up to two miners (the chart palette has two slots).
         var series = new List<(string, IReadOnlyList<double?>)>();
