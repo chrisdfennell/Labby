@@ -1,0 +1,50 @@
+@page "/shell/{ContainerId}"
+@rendermode InteractiveServer
+@inject DockerEngineClient Docker
+@inject IJSRuntime Js
+@implements IAsyncDisposable
+
+<PageTitle>Labby — Shell</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-3">
+    <h1 class="mb-0">🐚 Shell <span class="text-muted fs-5">@(Name ?? ContainerId)</span></h1>
+    <a class="btn btn-sm btn-outline-secondary ms-auto" href="containers">← containers</a>
+</div>
+
+@if (!Docker.IsAvailable)
+{
+    <div class="alert alert-warning">
+        The Docker socket isn't available — mount <code>/var/run/docker.sock</code> into the Labby container.
+    </div>
+}
+else
+{
+    <p class="text-muted small mb-2">
+        Runs <code>bash</code> (or <code>sh</code>) inside the container as root — type <code>exit</code> or close the page to end the session.
+    </p>
+    <div id="shell-terminal" class="shell-terminal"></div>
+}
+
+@code {
+    [Parameter] public string ContainerId { get; set; } = "";
+    [SupplyParameterFromQuery] public string? Name { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && Docker.IsAvailable)
+            await Js.InvokeVoidAsync("labbyShell.init", "shell-terminal", ContainerId);
+    }
+
+    // Navigating away within the SPA must close the WebSocket and free the terminal.
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("labbyShell.dispose");
+        }
+        catch (Exception)
+        {
+            // Circuit already gone (browser closed) — nothing to clean up client-side.
+        }
+    }
+}

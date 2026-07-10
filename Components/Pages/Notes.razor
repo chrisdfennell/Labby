@@ -16,7 +16,7 @@
                 {
                     <button type="button" class="note-item @(note.Id == _editingId ? "active" : "")"
                             @onclick="() => OpenNote(note)">
-                        <span class="text-truncate">@(string.IsNullOrWhiteSpace(note.Title) ? "(untitled)" : note.Title)</span>
+                        <span class="text-truncate">@(note.Pinned ? "📌 " : "")@(string.IsNullOrWhiteSpace(note.Title) ? "(untitled)" : note.Title)</span>
                         <span class="text-muted small">@note.UpdatedAt.ToString("MMM d")</span>
                     </button>
                 }
@@ -41,6 +41,9 @@
                             @onclick="() => _preview = !_preview">@(_preview ? "edit" : "preview")</button>
                     @if (_editingId is not null)
                     {
+                        <button class="btn btn-sm @(_pinned ? "btn-outline-primary active" : "btn-outline-secondary")"
+                                title="@(_pinned ? "Unpin from the dashboard" : "Pin to the dashboard")"
+                                @onclick="TogglePinAsync">@(_pinned ? "📌 pinned" : "📌 pin")</button>
                         @if (_confirmDelete)
                         {
                             <button class="btn btn-sm btn-danger" @onclick="DeleteAsync">confirm delete</button>
@@ -78,6 +81,7 @@
     private bool _saving;
     private bool _saved;
     private bool _confirmDelete;
+    private bool _pinned;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -97,6 +101,7 @@
         _preview = false;
         _saved = false;
         _confirmDelete = false;
+        _pinned = false;
     }
 
     private void OpenNote(NotesStore.Note note)
@@ -106,6 +111,16 @@
         _content = note.Content;
         _saved = false;
         _confirmDelete = false;
+        _pinned = note.Pinned;
+    }
+
+    private async Task TogglePinAsync()
+    {
+        if (_editingId is not { } id)
+            return;
+        _pinned = !_pinned;
+        await Store.SetPinnedAsync(id, _pinned);
+        _notes = await Store.GetAllAsync();
     }
 
     private async Task SaveAsync()

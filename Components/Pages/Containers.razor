@@ -87,6 +87,11 @@ else
                             @if (Docker.IsAvailable && c.Type == "docker")
                             {
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowLogsAsync(c)">Logs</button>
+                                @if (c.IsRunning)
+                                {
+                                    <a class="btn btn-sm btn-outline-secondary" title="Open an in-browser shell"
+                                       href="shell/@c.Id?name=@Uri.EscapeDataString(c.Name)">Shell</a>
+                                }
                             }
                             @if (c.IsRunning)
                             {

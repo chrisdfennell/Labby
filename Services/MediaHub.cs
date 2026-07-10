@@ -311,6 +311,45 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
         _downloads.At = DateTimeOffset.MinValue; // force a fresh fetch on the next read
     }
 
+    /// <summary>
+    /// Removes a stuck queue item (blocklisting the release so it isn't grabbed
+    /// again) and immediately searches for a replacement.
+    /// </summary>
+    public async Task RetryQueueItemAsync(QueueItem item, CancellationToken ct = default)
+    {
+        var (baseUrl, apiKey) = item.Source == "Sonarr"
+            ? (_options.Sonarr.Url.TrimEnd('/'), _options.Sonarr.ApiKey)
+            : (_options.Radarr.Url.TrimEnd('/'), _options.Radarr.ApiKey);
+        var http = httpFactory.CreateClient(HttpClientName);
+
+        using (var delete = new HttpRequestMessage(HttpMethod.Delete,
+            $"{baseUrl}/api/v3/queue/{item.Id}?removeFromClient=true&blocklist=true"))
+        {
+            delete.Headers.Add("X-Api-Key", apiKey);
+            using var response = await http.SendAsync(delete, ct);
+            response.EnsureSuccessStatusCode();
+        }
+
+        object? command = item switch
+        {
+            { Source: "Sonarr", EpisodeId: { } ep } => new { name = "EpisodeSearch", episodeIds = new[] { ep } },
+            { Source: "Radarr", MovieId: { } movie } => new { name = "MoviesSearch", movieIds = new[] { movie } },
+            _ => null,
+        };
+        if (command is not null)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v3/command")
+            {
+                Content = JsonContent.Create(command),
+            };
+            request.Headers.Add("X-Api-Key", apiKey);
+            using var response = await http.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+        }
+
+        _queue.At = DateTimeOffset.MinValue;
+    }
+
     // ── Tautulli ─────────────────────────────────────────────────────────
 
     private async Task<NowPlayingSnapshot> FetchNowPlayingAsync(CancellationToken ct)
@@ -727,14 +766,31 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     {
         var size = Num(record, "size") ?? 0;
         var left = Num(record, "sizeleft") ?? 0;
+        // Stuck downloads surface as trackedDownloadStatus "warning"/"error" with
+        // statusMessages explaining why (stalled, unpacking failed, import blocked…).
+        var trackedStatus = Str(record, "trackedDownloadStatus");
+        var problem = Str(record, "errorMessage");
+        if (problem.Length == 0 && record.TryGetProperty("statusMessages", out var messages))
+        {
+            problem = string.Join("; ", messages.EnumerateArray()
+                .SelectMany(m => m.TryGetProperty("messages", out var inner)
+                    ? inner.EnumerateArray().Select(v => v.GetString() ?? "")
+                    : [Str(m, "title")])
+                .Where(m => m.Length > 0));
+        }
         return new QueueItem
         {
+            Id = (long)(Num(record, "id") ?? 0),
             Title = knownTitle is { Length: > 0 } ? knownTitle : Str(record, "title"),
             Source = source,
             Status = Str(record, "status"),
             TimeLeft = Str(record, "timeleft") is { Length: > 0 } t ? t : null,
             ProgressPercent = size > 0 ? Math.Round((size - left) / size * 100, 1) : 0,
             SizeBytes = (long)size,
+            EpisodeId = Num(record, "episodeId") is { } ep ? (long)ep : null,
+            MovieId = Num(record, "movieId") is { } movie ? (long)movie : null,
+            ErrorMessage = problem.Length > 0 ? problem : null,
+            HasProblem = trackedStatus is "warning" or "error" || Str(record, "status") is "warning" or "failed",
         };
     }
 

@@ -1,5 +1,6 @@
 @page "/"
 @using System.Text
+@using Markdig
 @rendermode InteractiveServer
 @inject ServiceHealthMonitor Health
 @inject AmbientWeatherClient Weather
@@ -8,6 +9,7 @@
 @inject WakeOnLanService Wol
 @inject MinerClient Miners
 @inject PresenceMonitor Presence
+@inject NotesStore Notes
 @inject MetricsStore Metrics
 @inject Microsoft.Extensions.Options.IOptions<DashboardOptions> Dashboard
 @implements IDisposable
@@ -15,6 +17,17 @@
 <PageTitle>Labby — Dashboard</PageTitle>
 
 <h1 class="mb-4">🏠 Home Lab</h1>
+
+@if (_pinnedNote is { } pinned)
+{
+    <div class="card mb-4 pinned-note">
+        <div class="card-header d-flex justify-content-between">
+            <span>📌 @(string.IsNullOrWhiteSpace(pinned.Title) ? "Pinned note" : pinned.Title)</span>
+            <a class="small" href="notes">edit →</a>
+        </div>
+        <div class="card-body note-preview">@((MarkupString)Markdown.ToHtml(pinned.Content, NotePipeline))</div>
+    </div>
+}
 
 <div class="row g-3 mb-4">
     <div class="@(Media.AnyConfigured ? "col-lg-5 col-md-6" : "col-md-7")">
@@ -360,7 +373,15 @@
 
     // Cards load independently so one failing doesn't blank the others.
     private Task LoadCardsAsync() =>
-        Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync(), LoadLayoutAsync());
+        Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync(), LoadLayoutAsync(), LoadPinnedNoteAsync());
+
+    // Same hardening as the Notes page: markdown only, no raw HTML passthrough.
+    private static readonly MarkdownPipeline NotePipeline =
+        new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+
+    private NotesStore.Note? _pinnedNote;
+
+    private async Task LoadPinnedNoteAsync() => _pinnedNote = await Notes.GetPinnedAsync();
 
     // Block subsidy after the 2024 halving (until ~2028).
     private const double BlockRewardBtc = 3.125;

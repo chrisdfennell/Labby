@@ -111,6 +111,11 @@ else
                         <td class="text-end text-nowrap">
                             @if (!entry.IsFolder)
                             {
+                                @if (PreviewKind(entry.Name) != Preview.None)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" title="Preview"
+                                            @onclick="() => TogglePreview(entry)">@(_previewFor == entry.Name ? "▲" : "👁")</button>
+                                }
                                 <a class="btn btn-sm btn-outline-primary"
                                    href="/api/files/download?path=@Uri.EscapeDataString(CurrentPath)&name=@Uri.EscapeDataString(entry.Name)"
                                    target="_blank" rel="noreferrer">Download</a>
@@ -153,6 +158,29 @@ else
                                     }
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="CancelAction">cancel</button>
                                 </div>
+                            </td>
+                        </tr>
+                    }
+                    @if (_previewFor == entry.Name)
+                    {
+                        var src = $"/api/files/download?path={Uri.EscapeDataString(CurrentPath)}&name={Uri.EscapeDataString(entry.Name)}&inline=true";
+                        <tr>
+                            <td colspan="4" class="files-preview">
+                                @switch (PreviewKind(entry.Name))
+                                {
+                                    case Preview.Image:
+                                        <img src="@src" alt="@entry.Name" />
+                                        break;
+                                    case Preview.Video:
+                                        <video src="@src" controls preload="metadata"></video>
+                                        break;
+                                    case Preview.Audio:
+                                        <audio src="@src" controls preload="metadata"></audio>
+                                        break;
+                                    case Preview.Frame:
+                                        <iframe src="@src" title="@entry.Name" sandbox=""></iframe>
+                                        break;
+                                }
                             </td>
                         </tr>
                     }
@@ -228,6 +256,25 @@ else
             _actionError = ex.GetBaseException().Message;
         }
     }
+
+    private enum Preview { None, Image, Video, Audio, Frame }
+
+    private string? _previewFor;
+
+    private static Preview PreviewKind(string name) =>
+        Path.GetExtension(name).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp" or ".svg" or ".bmp" or ".avif" => Preview.Image,
+            ".mp4" or ".webm" or ".m4v" or ".mov" or ".mkv" => Preview.Video,
+            ".mp3" or ".m4a" or ".flac" or ".wav" or ".ogg" or ".opus" => Preview.Audio,
+            ".pdf" or ".txt" or ".md" or ".log" or ".json" or ".xml" or ".yaml" or ".yml"
+                or ".conf" or ".ini" or ".sh" or ".ps1" or ".cs" or ".js" or ".ts" or ".py"
+                or ".css" or ".html" or ".htm" or ".csv" => Preview.Frame,
+            _ => Preview.None,
+        };
+
+    private void TogglePreview(FileEntry entry) =>
+        _previewFor = _previewFor == entry.Name ? null : entry.Name;
 
     private enum RowAction { None, Rename, Move }
 
@@ -329,6 +376,7 @@ else
             return;
         _loading = true;
         _error = null;
+        _previewFor = null;
         try
         {
             _entries = _segments.Count == 0

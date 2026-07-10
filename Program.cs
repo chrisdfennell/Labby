@@ -162,6 +162,7 @@ app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages:
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
+app.UseWebSockets();
 
 // Liveness probe for Docker/monitoring; always anonymous.
 app.MapGet("/healthz", () => Results.Text("ok")).AllowAnonymous();
@@ -214,18 +215,100 @@ if (authEnabled)
     backup.RequireAuthorization();
 
 // Streams NAS file downloads through the app (the browser can't use our QTS session directly).
-var download = app.MapGet("/api/files/download", async (string path, string name, QnapFileStation fileStation, HttpContext context, CancellationToken ct) =>
+// inline=true serves the file for in-browser display (previews) instead of as an attachment.
+var previewTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+var download = app.MapGet("/api/files/download", async (string path, string name, QnapFileStation fileStation, HttpContext context, CancellationToken ct, bool inline = false) =>
 {
     if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(name) || name.Contains('/') || name.Contains('\\'))
         return Results.BadRequest();
 
     var upstream = await fileStation.OpenDownloadAsync(path, name, ct);
     context.Response.RegisterForDispose(upstream);
+    if (inline)
+    {
+        // QTS answers octet-stream for everything; the extension knows better.
+        if (!previewTypes.TryGetContentType(name, out var guessed))
+            guessed = "text/plain; charset=utf-8"; // .log, .conf, .yml… render as text
+        return Results.Stream(await upstream.Content.ReadAsStreamAsync(ct), guessed);
+    }
     var contentType = upstream.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
     return Results.Stream(await upstream.Content.ReadAsStreamAsync(ct), contentType, fileDownloadName: name);
 });
 if (authEnabled)
     download.RequireAuthorization();
+
+// Bridges a browser terminal (xterm.js) to `docker exec` inside a container.
+// Binary frames = keystrokes; text frames = JSON control messages (resize).
+var shell = app.MapGet("/ws/shell/{id}", async (HttpContext context, string id, DockerEngineClient docker) =>
+{
+    if (!context.WebSockets.IsWebSocketRequest)
+        return Results.BadRequest("WebSocket connections only.");
+
+    var ct = context.RequestAborted;
+    using var ws = await context.WebSockets.AcceptWebSocketAsync();
+    try
+    {
+        var execId = await docker.CreateShellExecAsync(id, ct);
+        await using var stream = await docker.StartExecStreamAsync(execId, ct);
+
+        // shell → browser
+        var output = Task.Run(async () =>
+        {
+            var buffer = new byte[8192];
+            while (true)
+            {
+                var read = await stream.ReadAsync(buffer, ct);
+                if (read == 0)
+                    break;
+                await ws.SendAsync(buffer.AsMemory(0, read), System.Net.WebSockets.WebSocketMessageType.Binary, true, ct);
+            }
+        }, ct);
+
+        // browser → shell
+        var input = Task.Run(async () =>
+        {
+            var receive = new byte[8192];
+            while (true)
+            {
+                var frame = await ws.ReceiveAsync(receive.AsMemory(), ct);
+                if (frame.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                    break;
+                if (frame.MessageType == System.Net.WebSockets.WebSocketMessageType.Text)
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(receive.AsMemory(0, frame.Count));
+                    if (doc.RootElement.TryGetProperty("cols", out var cols) && doc.RootElement.TryGetProperty("rows", out var rows))
+                        await docker.ResizeExecAsync(execId, cols.GetInt32(), rows.GetInt32(), ct);
+                }
+                else
+                {
+                    await stream.WriteAsync(receive.AsMemory(0, frame.Count), ct);
+                    await stream.FlushAsync(ct);
+                }
+            }
+        }, ct);
+
+        // Either side ending (shell exited, or browser left) tears the session down;
+        // disposing the hijacked stream unblocks whichever pump is still awaiting.
+        await Task.WhenAny(output, input);
+    }
+    catch (OperationCanceledException)
+    {
+        // Browser navigated away — normal teardown.
+    }
+    catch (Exception ex) when (ws.State == System.Net.WebSockets.WebSocketState.Open)
+    {
+        var message = System.Text.Encoding.UTF8.GetBytes($"\r\n\x1b[31m{ex.GetBaseException().Message}\x1b[0m\r\n");
+        await ws.SendAsync(message, System.Net.WebSockets.WebSocketMessageType.Binary, true, CancellationToken.None);
+    }
+    finally
+    {
+        if (ws.State == System.Net.WebSockets.WebSocketState.Open)
+            await ws.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "shell ended", CancellationToken.None);
+    }
+    return Results.Empty;
+});
+if (authEnabled)
+    shell.RequireAuthorization();
 
 app.MapStaticAssets();
 var components = app.MapRazorComponents<App>()

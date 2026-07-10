@@ -13,7 +13,7 @@ public sealed class NotesStore(IOptions<HistoryOptions> options, IHostEnvironmen
 
     private string ConnectionString => new SqliteConnectionStringBuilder { DataSource = _dbPath }.ToString();
 
-    public sealed record Note(long Id, string Title, string Content, DateTimeOffset UpdatedAt);
+    public sealed record Note(long Id, string Title, string Content, DateTimeOffset UpdatedAt, bool Pinned);
 
     public async Task<IReadOnlyList<Note>> GetAllAsync(CancellationToken ct = default)
     {
@@ -22,14 +22,43 @@ public sealed class NotesStore(IOptions<HistoryOptions> options, IHostEnvironmen
         await using var conn = new SqliteConnection(ConnectionString);
         await conn.OpenAsync(ct);
         var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, title, content, updated_at FROM notes ORDER BY updated_at DESC";
+        cmd.CommandText = "SELECT id, title, content, updated_at, pinned FROM notes ORDER BY pinned DESC, updated_at DESC";
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
         {
             notes.Add(new Note(reader.GetInt64(0), reader.GetString(1), reader.GetString(2),
-                DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(3)).ToLocalTime()));
+                DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(3)).ToLocalTime(), reader.GetInt64(4) != 0));
         }
         return notes;
+    }
+
+    /// <summary>The single pinned note shown on the dashboard, if any.</summary>
+    public async Task<Note?> GetPinnedAsync(CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(ConnectionString);
+        await conn.OpenAsync(ct);
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id, title, content, updated_at, pinned FROM notes WHERE pinned = 1 LIMIT 1";
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
+            return null;
+        return new Note(reader.GetInt64(0), reader.GetString(1), reader.GetString(2),
+            DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(3)).ToLocalTime(), true);
+    }
+
+    /// <summary>Pins one note to the dashboard (unpinning any other) or unpins it.</summary>
+    public async Task SetPinnedAsync(long id, bool pinned, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(ConnectionString);
+        await conn.OpenAsync(ct);
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = pinned
+            ? "UPDATE notes SET pinned = 0; UPDATE notes SET pinned = 1 WHERE id = $id"
+            : "UPDATE notes SET pinned = 0 WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     public async Task<long> SaveAsync(long? id, string title, string content, CancellationToken ct = default)
@@ -83,9 +112,21 @@ public sealed class NotesStore(IOptions<HistoryOptions> options, IHostEnvironmen
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     title TEXT NOT NULL,
                     content TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL);
+                    updated_at INTEGER NOT NULL,
+                    pinned INTEGER NOT NULL DEFAULT 0);
                 """;
             await cmd.ExecuteNonQueryAsync(ct);
+            // Databases created before the pinned column existed migrate in place.
+            var migrate = conn.CreateCommand();
+            migrate.CommandText = "ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0";
+            try
+            {
+                await migrate.ExecuteNonQueryAsync(ct);
+            }
+            catch (SqliteException)
+            {
+                // duplicate column — already migrated
+            }
             _initialized = true;
         }
         finally

@@ -54,12 +54,21 @@ public sealed record QueueSnapshot
 
 public sealed record QueueItem
 {
+    /// <summary>Queue record id — used to remove/blocklist the item.</summary>
+    public long Id { get; init; }
     public string Title { get; init; } = "";
     public string Source { get; init; } = "";
     public string Status { get; init; } = "";
     public string? TimeLeft { get; init; }
     public double ProgressPercent { get; init; }
     public long SizeBytes { get; init; }
+    /// <summary>Sonarr episode id, for triggering a fresh search after removal.</summary>
+    public long? EpisodeId { get; init; }
+    /// <summary>Radarr movie id, for triggering a fresh search after removal.</summary>
+    public long? MovieId { get; init; }
+    /// <summary>Why the download is stuck, when the Arr flags a problem.</summary>
+    public string? ErrorMessage { get; init; }
+    public bool HasProblem { get; init; }
 }
 
 /// <summary>Upcoming releases from the Sonarr and Radarr calendars.</summary>

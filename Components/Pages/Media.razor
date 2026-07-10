@@ -236,17 +236,40 @@ else
                             {
                                 <span class="text-muted">Queue is empty.</span>
                             }
+                            @if (_queueActionError is not null)
+                            {
+                                <div class="text-danger small">@_queueActionError</div>
+                            }
                             @foreach (var q in _queue.Items)
                             {
                                 <div class="media-session">
                                     <div class="d-flex justify-content-between align-items-baseline gap-2">
-                                        <span class="text-truncate" title="@q.Title">@q.Title</span>
-                                        <span class="badge bg-secondary">@q.Status</span>
+                                        <span class="text-truncate" title="@q.Title">@(q.HasProblem ? "⚠️ " : "")@q.Title</span>
+                                        <span class="text-nowrap">
+                                            <span class="badge @(q.HasProblem ? "bg-warning text-dark" : "bg-secondary")">@q.Status</span>
+                                            @if (q.Id > 0)
+                                            {
+                                                @if (_confirmRetry == $"{q.Source}:{q.Id}")
+                                                {
+                                                    <button type="button" class="req-btn decline" disabled="@_queueActionBusy"
+                                                            @onclick="() => RetryQueueItemAsync(q)">confirm: blocklist + search again</button>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="req-btn approve" title="Remove, blocklist this release, and search for another"
+                                                            disabled="@_queueActionBusy" @onclick='() => _confirmRetry = $"{q.Source}:{q.Id}"'>🔁</button>
+                                                }
+                                            }
+                                        </span>
                                     </div>
                                     <div class="text-muted small">
                                         @q.Source · @Format.Bytes(q.SizeBytes)
                                         @(q.TimeLeft is { } tl ? $" · {tl} left" : "")
                                     </div>
+                                    @if (q.ErrorMessage is { } problem)
+                                    {
+                                        <div class="state-warn small text-truncate" title="@problem">@problem</div>
+                                    }
                                     <div class="progress media-progress" role="progressbar" aria-label="Queue progress"
                                          aria-valuenow="@((int)q.ProgressPercent)" aria-valuemin="0" aria-valuemax="100">
                                         <div class="progress-bar" style="width: @((int)q.ProgressPercent)%"></div>
@@ -529,6 +552,9 @@ else
     private IReadOnlyList<(string, IReadOnlyList<double?>)> _watchSeries = [];
     private bool _downloadActionBusy;
     private string? _downloadActionError;
+    private string? _confirmRetry;
+    private bool _queueActionBusy;
+    private string? _queueActionError;
     private bool _requestActionBusy;
     private string? _requestActionError;
     private IndexerHealthSnapshot? _indexers;
@@ -624,6 +650,26 @@ else
         finally
         {
             _downloadActionBusy = false;
+        }
+    }
+
+    private async Task RetryQueueItemAsync(QueueItem item)
+    {
+        _confirmRetry = null;
+        _queueActionBusy = true;
+        _queueActionError = null;
+        try
+        {
+            await Hub.RetryQueueItemAsync(item);
+            _queue = await Hub.GetQueueAsync();
+        }
+        catch (Exception ex)
+        {
+            _queueActionError = $"{item.Source}: {ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            _queueActionBusy = false;
         }
     }
 
