@@ -1,4 +1,43 @@
+.topnav-wrap {
+    position: relative;
+    display: flex;
+    min-width: 0; /* let the nav shrink below its content width inside the flex topbar */
+}
+
+    /* Edge fades hinting that more items are off-screen; nav.js toggles the classes. */
+    .topnav-wrap::before,
+    .topnav-wrap::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2.5rem;
+        z-index: 1;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s;
+    }
+
+    .topnav-wrap::before {
+        left: 0;
+        background: linear-gradient(90deg, var(--lab-bg), transparent);
+    }
+
+    .topnav-wrap::after {
+        right: 0;
+        background: linear-gradient(270deg, var(--lab-bg), transparent);
+    }
+
+    .topnav-wrap.fade-left::before {
+        opacity: 1;
+    }
+
+    .topnav-wrap.fade-right::after {
+        opacity: 1;
+    }
+
 .topnav {
+    flex: 1;
     display: flex;
     align-items: stretch;
     gap: 0.25rem;
