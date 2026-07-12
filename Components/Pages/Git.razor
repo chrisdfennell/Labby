@@ -61,7 +61,7 @@ else
                                 {
                                     <tr>
                                         <td>
-                                            <a href="@($"{Api.BaseUrl}/{r.Name}")" target="_blank" rel="noreferrer" class="fw-semibold text-decoration-none">@r.Name</a>
+                                            <a href="@($"{Api.BaseUrl}/repo/{r.Name}")" target="_blank" rel="noreferrer" class="fw-semibold text-decoration-none">@r.Name</a>
                                             @if (r.IsPrivate)
                                             {
                                                 <span class="badge bg-secondary ms-1">private</span>
@@ -96,7 +96,7 @@ else
                         @foreach (var p in _overview.OpenPulls)
                         {
                             <div class="git-item">
-                                <a href="@($"{Api.BaseUrl}/{p.Repo}/pulls/{p.Number}")" target="_blank" rel="noreferrer" class="fw-semibold text-decoration-none text-truncate d-block">
+                                <a href="@($"{Api.BaseUrl}/repo/{p.Repo}/pulls/{p.Number}")" target="_blank" rel="noreferrer" class="fw-semibold text-decoration-none text-truncate d-block">
                                     @(p.IsDraft ? "📝 " : "")@p.Title
                                 </a>
                                 <div class="text-muted small">@p.Repo #@p.Number · @p.Author · @p.SourceBranch → @p.TargetBranch</div>
@@ -117,7 +117,7 @@ else
                         @foreach (var i in _overview.OpenIssues)
                         {
                             <div class="git-item">
-                                <a href="@($"{Api.BaseUrl}/{i.Repo}/issues/{i.Number}")" target="_blank" rel="noreferrer" class="fw-semibold text-decoration-none text-truncate d-block">@i.Title</a>
+                                <a href="@($"{Api.BaseUrl}/repo/{i.Repo}/issues/{i.Number}")" target="_blank" rel="noreferrer" class="fw-semibold text-decoration-none text-truncate d-block">@i.Title</a>
                                 <div class="text-muted small">@i.Repo #@i.Number · @i.Author · @Ago(i.CreatedAt)@(i.CommentCount > 0 ? $" · 💬 {i.CommentCount}" : "")</div>
                             </div>
                         }
