@@ -15,6 +15,7 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **Uptime** (`/uptime`) | Status-page view of every dashboard service: uptime % (24h/7d), a 30-day daily bar strip, and an outage log with durations — history persisted to SQLite |
 | **Network** (`/network`) | Latency charts for pinged hosts (`Network:PingHosts`, 60s cadence, packet-loss %) and scheduled internet speed tests via bundled librespeed-cli (`Network:SpeedtestHours`, 0 = off; optional `MinDownloadMbps` slow-internet alert) |
 | **Terminal** (`/terminal`) | Embeds any web terminal (e.g. a web-SSH container) via `Terminal:Url` / env `TERMINAL_URL` — browser-loaded iframe, hidden when unset |
+| **VS Code** (`/vscode`) | Embeds a [code-server](https://github.com/coder/code-server) / VS Code Web instance via `VsCode:Url` / env `VSCODE_URL` — browser-loaded iframe |
 | **Trends** (`/trends`) | Any stored metric charted over 24h/7d/30d: NAS CPU/RAM/temps, ping RTT, hashrate, speedtests, volume usage |
 | **Notes** (`/notes`) | Markdown notes/runbooks persisted to SQLite, with live preview |
 

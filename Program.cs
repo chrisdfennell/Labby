@@ -16,6 +16,7 @@ builder.Services.Configure<AmbientWeatherOptions>(builder.Configuration.GetSecti
 builder.Services.Configure<DashboardOptions>(builder.Configuration.GetSection(DashboardOptions.SectionName));
 builder.Services.Configure<KontainrOptions>(builder.Configuration.GetSection(KontainrOptions.SectionName));
 builder.Services.Configure<TerminalOptions>(builder.Configuration.GetSection(TerminalOptions.SectionName));
+builder.Services.Configure<VsCodeOptions>(builder.Configuration.GetSection(VsCodeOptions.SectionName));
 builder.Services.Configure<OsintOptions>(builder.Configuration.GetSection(OsintOptions.SectionName));
 builder.Services.Configure<GitOptions>(builder.Configuration.GetSection(GitOptions.SectionName));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));

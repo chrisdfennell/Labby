@@ -37,6 +37,7 @@ services:
       AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
       Kontainr__Url: ${KONTAINR_URL:-}
       Terminal__Url: ${TERMINAL_URL:-}
+      VsCode__Url: ${VSCODE_URL:-}
       Osint__Url: ${OSINT_URL:-}
       Git__Url: ${MYPERSONALGIT_URL:-}
       Git__Token: ${MYPERSONALGIT_TOKEN:-}

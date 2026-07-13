@@ -53,6 +53,16 @@ public sealed class TerminalOptions
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
 }
 
+public sealed class VsCodeOptions
+{
+    public const string SectionName = "VsCode";
+
+    /// <summary>Browser-reachable URL of a code-server / VS Code Web instance (iframe src, so it must resolve from the client).</summary>
+    public string Url { get; set; } = "";
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
+}
+
 public sealed class OsintOptions
 {
     public const string SectionName = "Osint";

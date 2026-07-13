@@ -1,0 +1,29 @@
+@page "/vscode"
+@using Microsoft.Extensions.Options
+@inject IOptions<VsCodeOptions> Config
+
+<PageTitle>Labby — VS Code</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">🧑‍💻 VS Code</h1>
+    @if (Config.Value.IsConfigured)
+    {
+        <a class="btn btn-sm btn-outline-secondary ms-auto" href="@Config.Value.Url" target="_blank" rel="noreferrer">
+            Open in new tab ↗
+        </a>
+    }
+</div>
+
+@if (!Config.Value.IsConfigured)
+{
+    <div class="alert alert-warning">
+        No editor configured — set <code>VsCode:Url</code> (env <code>VSCODE_URL</code>) to a browser-reachable
+        code-server or VS Code Web instance.
+    </div>
+}
+else
+{
+    <div class="kontainr-frame-wrap">
+        <iframe src="@Config.Value.Url" title="VS Code" class="kontainr-frame"></iframe>
+    </div>
+}
