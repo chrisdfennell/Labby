@@ -13,6 +13,7 @@
 @inject GitClient Git
 @inject MetricsStore Metrics
 @inject Microsoft.Extensions.Options.IOptions<DashboardOptions> Dashboard
+@inject IJSRuntime Js
 @implements IDisposable
 
 <PageTitle>Labby — Dashboard</PageTitle>
@@ -22,11 +23,18 @@
 @if (_pinnedNote is { } pinned)
 {
     <div class="card mb-4 pinned-note">
-        <div class="card-header d-flex justify-content-between">
-            <span>📌 @(string.IsNullOrWhiteSpace(pinned.Title) ? "Pinned note" : pinned.Title)</span>
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <button type="button" class="pinned-toggle" @onclick="TogglePinnedAsync"
+                    title="@(_pinnedCollapsed ? "Expand" : "Collapse")">
+                <span class="pinned-chevron">@(_pinnedCollapsed ? "▸" : "▾")</span>
+                📌 @(string.IsNullOrWhiteSpace(pinned.Title) ? "Pinned note" : pinned.Title)
+            </button>
             <a class="small" href="notes">edit →</a>
         </div>
-        <div class="card-body note-preview">@((MarkupString)Markdown.ToHtml(pinned.Content, NotePipeline))</div>
+        @if (!_pinnedCollapsed)
+        {
+            <div class="card-body note-preview">@((MarkupString)Markdown.ToHtml(pinned.Content, NotePipeline))</div>
+        }
     </div>
 }
 
@@ -394,6 +402,7 @@
     {
         if (!firstRender)
             return;
+        _pinnedCollapsed = await Js.InvokeAsync<bool>("labbyPinned.collapsed");
         await LoadCardsAsync();
         StateHasChanged();
         _refreshTimer = new Timer(_ => _ = InvokeAsync(async () =>
@@ -412,8 +421,15 @@
         new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
 
     private NotesStore.Note? _pinnedNote;
+    private bool _pinnedCollapsed;
 
     private async Task LoadPinnedNoteAsync() => _pinnedNote = await Notes.GetPinnedAsync();
+
+    private async Task TogglePinnedAsync()
+    {
+        _pinnedCollapsed = !_pinnedCollapsed;
+        await Js.InvokeVoidAsync("labbyPinned.setCollapsed", _pinnedCollapsed);
+    }
 
     private GitOverview? _git;
 

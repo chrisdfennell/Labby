@@ -188,9 +188,27 @@ code {
     height: 100% !important;
 }
 
+/* On the dashboard the pinned note hugs its content instead of inheriting
+   the Notes editor's 24rem minimum; long notes scroll past 16rem. */
 .pinned-note .note-preview {
+    min-height: 0;
     max-height: 16rem;
     overflow: auto;
+}
+
+.pinned-note .pinned-toggle {
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.pinned-note .pinned-chevron {
+    display: inline-block;
+    width: 1em;
+    color: var(--lab-muted);
 }
 
 .stat-tile {
