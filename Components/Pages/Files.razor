@@ -26,7 +26,7 @@ else
                 }
                 else
                 {
-                    <button type="button" class="link-btn" @onclick="() => NavigateToDepthAsync(0)">Shares</button>
+                    <button type="button" class="link-btn" @onclick="() => NavigateToDepth(0)">Shares</button>
                 }
             </li>
             @for (var i = 0; i < _segments.Count; i++)
@@ -39,7 +39,7 @@ else
                 else
                 {
                     <li class="breadcrumb-item">
-                        <button type="button" class="link-btn" @onclick="() => NavigateToDepthAsync(depth)">@_segments[i]</button>
+                        <button type="button" class="link-btn" @onclick="() => NavigateToDepth(depth)">@_segments[i]</button>
                     </li>
                 }
             }
@@ -97,7 +97,7 @@ else
                         <td>
                             @if (entry.IsFolder)
                             {
-                                <button type="button" class="link-btn" @onclick="() => OpenFolderAsync(entry.Name)">
+                                <button type="button" class="link-btn" @onclick="() => OpenFolder(entry.Name)">
                                     📁 @entry.Name
                                 </button>
                             }
@@ -349,25 +349,44 @@ else
         }
     }
 
+    // The current folder lives in the URL (?path=share/sub) so browser back/forward
+    // and deep links move between folders; clicks navigate and the parameter drives state.
+    [SupplyParameterFromQuery(Name = "path")]
+    public string? PathParam { get; set; }
+
+    private bool _interactive;
+    private string? _appliedPath;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var path = (PathParam ?? "").Trim('/');
+        if (path == _appliedPath)
+            return;
+        _appliedPath = path;
+        _segments.Clear();
+        _segments.AddRange(path.Split('/', StringSplitOptions.RemoveEmptyEntries));
+        if (_interactive)
+            await RefreshAsync();
+    }
+
     // Runs after first render so prerendering never blocks on a slow/unreachable NAS.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
             return;
+        _interactive = true;
         await RefreshAsync();
         StateHasChanged();
     }
 
-    private async Task OpenFolderAsync(string name)
-    {
-        _segments.Add(name);
-        await RefreshAsync();
-    }
+    private void OpenFolder(string name) => NavigateToPath(_segments.Append(name));
 
-    private async Task NavigateToDepthAsync(int depth)
+    private void NavigateToDepth(int depth) => NavigateToPath(_segments.Take(depth));
+
+    private void NavigateToPath(IEnumerable<string> segments)
     {
-        _segments.RemoveRange(depth, _segments.Count - depth);
-        await RefreshAsync();
+        var path = string.Join('/', segments);
+        Nav.NavigateTo(path.Length == 0 ? "files" : $"files?path={Uri.EscapeDataString(path)}");
     }
 
     private async Task RefreshAsync()
