@@ -15,5 +15,8 @@ data/
 *.user
 *.suo
 
+# Claude Code local settings
+.claude/settings.local.json
+
 # Docker image exports
 *.tar

@@ -45,15 +45,15 @@ services:
       AmbientWeather__ApplicationKey: ${AMBIENT_APP_KEY:-}
       AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
       # Must be reachable from the BROWSER (it's an iframe src), not from inside the labby container.
-      Kontainr__Url: ${KONTAINR_URL:-http://localhost:5124}
+      Kontainr__Url: ${KONTAINR_URL:-https://kontainr.fennellfamily.org}
       # Web terminal embed (also browser-loaded); leave empty to hide the Terminal page.
-      Terminal__Url: ${TERMINAL_URL:-}
+      Terminal__Url: ${TERMINAL_URL:-https://terminal.fennellfamily.org}
       # code-server / VS Code Web embed (also browser-loaded).
-      VsCode__Url: ${VSCODE_URL:-}
+      VsCode__Url: ${VSCODE_URL:-https://code.fennellfamily.org/?folder=/workspace/C%23/Labby}
       # OSINT Hub embed (also browser-loaded); leave empty to hide the OSINT page.
-      Osint__Url: ${OSINT_URL:-}
+      Osint__Url: ${OSINT_URL:-https://osint.fennellfamily.org}
       # MyPersonalGit API (server-loaded); token is a mypg_ PAT. Leave empty to hide the Git page.
-      Git__Url: ${MYPERSONALGIT_URL:-}
+      Git__Url: ${MYPERSONALGIT_URL:-https://git.fennellfamily.org}
       Git__Token: ${MYPERSONALGIT_TOKEN:-}
       # Media page integrations — all optional.
       Media__Plex__Url: ${PLEX_BASE_URL:-}

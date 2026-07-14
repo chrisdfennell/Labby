@@ -37,11 +37,11 @@ services:
       AmbientWeather__ApiKey: ${AMBIENT_API_KEY:-}
       AmbientWeather__ApplicationKey: ${AMBIENT_APP_KEY:-}
       AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}
-      Kontainr__Url: ${KONTAINR_URL:-}
-      Terminal__Url: ${TERMINAL_URL:-}
-      VsCode__Url: ${VSCODE_URL:-}
-      Osint__Url: ${OSINT_URL:-}
-      Git__Url: ${MYPERSONALGIT_URL:-}
+      Kontainr__Url: ${KONTAINR_URL:-https://kontainr.fennellfamily.org}
+      Terminal__Url: ${TERMINAL_URL:-https://terminal.fennellfamily.org}
+      VsCode__Url: ${VSCODE_URL:-https://code.fennellfamily.org/?folder=/workspace/C%23/Labby}
+      Osint__Url: ${OSINT_URL:-https://osint.fennellfamily.org}
+      Git__Url: ${MYPERSONALGIT_URL:-https://git.fennellfamily.org}
       Git__Token: ${MYPERSONALGIT_TOKEN:-}
       Media__Plex__Url: ${PLEX_BASE_URL:-}
       Media__Plex__ApiKey: ${PLEX_TOKEN:-}
