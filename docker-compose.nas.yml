@@ -47,7 +47,7 @@ services:
       # OSINT Hub embed (also browser-loaded); leave empty to hide the OSINT page.
       Osint__Url: ${OSINT_URL:-https://osint.fennellfamily.org}
       # MyPersonalGit API (server-loaded); token is a mypg_ PAT. Leave empty to hide the Git page.
-      Git__Url: ${MYPERSONALGIT_URL:-https://git.fennellfamily.org}
+      Git__Url: ${MYPERSONALGIT_URL:-http://fennell-nas:8083/}
       Git__Token: ${MYPERSONALGIT_TOKEN:-}
       # Media page integrations — all optional.
       Media__Plex__Url: ${PLEX_BASE_URL:-}
