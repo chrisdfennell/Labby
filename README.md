@@ -34,7 +34,8 @@ Fill in the `Qnap` section. The app talks to the QTS web API (`authLogin.cgi`), 
   "UseHttps": false,
   "IgnoreCertificateErrors": true,
   "Username": "labby",
-  "Password": "..."
+  "Password": "...",
+  "DropPath": "/Public/Drop" // where the Drop page uploads to; created on first drop
 }
 ```
 

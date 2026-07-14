@@ -1,0 +1,58 @@
+.dropzone {
+    position: relative;
+    border: 2px dashed var(--lab-border);
+    border-radius: 12px;
+    background: var(--lab-panel-deep);
+    padding: 3.5rem 1rem;
+    text-align: center;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.dropzone-active {
+    border-color: var(--lab-accent);
+    background: var(--lab-accent-dim);
+}
+
+.dropzone-busy {
+    opacity: 0.75;
+}
+
+/* The InputFile invisibly covers the whole zone so both clicking and
+   dropping files hit the native input — no JS interop needed. */
+.dropzone ::deep input[type="file"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.dropzone-busy ::deep input[type="file"] {
+    cursor: progress;
+}
+
+.drop-icon {
+    font-size: 3rem;
+    line-height: 1;
+    margin-bottom: 0.75rem;
+}
+
+.drop-title {
+    font-family: var(--lab-mono);
+    font-size: 1.1rem;
+    color: var(--lab-text);
+}
+
+.drop-queue li {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+}
+
+.drop-sharelink {
+    width: 28rem;
+    max-width: 100%;
+    font-family: var(--lab-mono);
+}

@@ -1,0 +1,241 @@
+@page "/drop"
+@rendermode InteractiveServer
+@using Microsoft.Extensions.Options
+@inject QnapFileStation FileStation
+@inject IOptions<QnapOptions> Qnap
+@inject ShareLinkService ShareLinks
+@inject NavigationManager Nav
+@inject IJSRuntime Js
+
+<PageTitle>Labby — Drop</PageTitle>
+
+<h1 class="mb-4">📥 File Drop</h1>
+
+@if (!FileStation.IsConfigured)
+{
+    <div class="alert alert-warning">
+        QNAP is not configured. Set <code>Qnap:Host</code>, <code>Qnap:Username</code> and <code>Qnap:Password</code> first.
+    </div>
+}
+else
+{
+    <p class="text-muted">
+        Anything dropped here lands in
+        <a href="files?path=@Uri.EscapeDataString(DropPath.Trim('/'))">@DropPath</a>
+        on the NAS.
+    </p>
+
+    <div class="dropzone @(_dragDepth > 0 ? "dropzone-active" : "") @(_busy ? "dropzone-busy" : "")"
+         @ondragenter="() => _dragDepth++"
+         @ondragleave="() => _dragDepth = Math.Max(0, _dragDepth - 1)"
+         @ondrop="() => _dragDepth = 0">
+        <InputFile OnChange="OnFilesSelectedAsync" multiple disabled="@_busy" />
+        <div class="drop-icon" aria-hidden="true">@(_busy ? "⏳" : "📥")</div>
+        @if (_busy)
+        {
+            <div class="drop-title">Uploading @(_queue.Count(q => q.Status == UploadStatus.Done) + 1) of @_queue.Count…</div>
+        }
+        else
+        {
+            <div class="drop-title">Drop files here</div>
+            <div class="text-muted small">or click to browse — up to @MaxFiles files, @Format.Bytes(MaxUploadBytes) each</div>
+        }
+    </div>
+
+    @if (_queue.Count > 0)
+    {
+        <ul class="list-unstyled drop-queue mt-3 mb-0">
+            @foreach (var item in _queue)
+            {
+                <li>
+                    @switch (item.Status)
+                    {
+                        case UploadStatus.Pending: <span class="text-muted">·</span> break;
+                        case UploadStatus.Uploading: <span>⏳</span> break;
+                        case UploadStatus.Done: <span class="text-success">✓</span> break;
+                        case UploadStatus.Failed: <span class="text-danger">✗</span> break;
+                    }
+                    <span>@item.Name</span>
+                    <span class="text-muted small">@Format.Bytes(item.Size)</span>
+                    @if (item.Error is not null)
+                    {
+                        <span class="text-danger small">— @item.Error</span>
+                    }
+                </li>
+            }
+        </ul>
+    }
+
+    <h2 class="h5 mt-4">Recent drops</h2>
+    @if (_recent.Count == 0)
+    {
+        <p class="text-muted">Nothing dropped yet.</p>
+    }
+    else
+    {
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr><th>Name</th><th class="text-end">Size</th><th class="text-end">Dropped</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in _recent)
+                {
+                    <tr>
+                        <td>📄 @entry.Name</td>
+                        <td class="text-end text-muted">@Format.Bytes(entry.SizeBytes)</td>
+                        <td class="text-end text-muted">@(entry.Modified?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                        <td class="text-end text-nowrap">
+                            <a class="btn btn-sm btn-outline-primary"
+                               href="/api/files/download?path=@Uri.EscapeDataString(DropPath)&name=@Uri.EscapeDataString(entry.Name)"
+                               target="_blank" rel="noreferrer">Download</a>
+                            <button class="btn btn-sm btn-outline-secondary" title="Create a 7-day share link"
+                                    @onclick="() => Share(entry)">🔗</button>
+                        </td>
+                    </tr>
+                    @if (_shareUrlFor == entry.Name && _shareUrl is not null)
+                    {
+                        <tr>
+                            <td colspan="4">
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    <span class="text-muted small">7-day link</span>
+                                    <input class="form-control form-control-sm drop-sharelink" readonly value="@_shareUrl" />
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="CopyShareUrlAsync">@(_copied ? "copied ✓" : "copy")</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => _shareUrlFor = null">close</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    // Same ceiling as the Files page; Blazor's SignalR file streaming handles it.
+    private const long MaxUploadBytes = 2L * 1024 * 1024 * 1024;
+    private const int MaxFiles = 20;
+    private const int RecentCount = 15;
+
+    private int _dragDepth;
+    private bool _busy;
+    private bool _folderReady;
+    private List<UploadItem> _queue = [];
+    private IReadOnlyList<FileEntry> _recent = [];
+    private string? _shareUrlFor;
+    private string? _shareUrl;
+    private bool _copied;
+
+    private string DropPath => "/" + Qnap.Value.DropPath.Trim().Trim('/');
+
+    private enum UploadStatus { Pending, Uploading, Done, Failed }
+
+    private sealed class UploadItem
+    {
+        public required string Name { get; init; }
+        public long Size { get; init; }
+        public UploadStatus Status { get; set; } = UploadStatus.Pending;
+        public string? Error { get; set; }
+    }
+
+    // Runs after first render so prerendering never blocks on a slow/unreachable NAS.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !FileStation.IsConfigured)
+            return;
+        await RefreshRecentAsync();
+        StateHasChanged();
+    }
+
+    private async Task OnFilesSelectedAsync(InputFileChangeEventArgs e)
+    {
+        if (_busy)
+            return;
+        _busy = true;
+        _dragDepth = 0;
+        var files = e.GetMultipleFiles(MaxFiles);
+        _queue = files.Select(f => new UploadItem { Name = f.Name, Size = f.Size }).ToList();
+        try
+        {
+            await EnsureDropFolderAsync();
+            for (var i = 0; i < files.Count; i++)
+            {
+                var item = _queue[i];
+                item.Status = UploadStatus.Uploading;
+                StateHasChanged();
+                try
+                {
+                    await using var stream = files[i].OpenReadStream(MaxUploadBytes);
+                    await FileStation.UploadAsync(DropPath, files[i].Name, stream);
+                    item.Status = UploadStatus.Done;
+                }
+                catch (Exception ex)
+                {
+                    item.Status = UploadStatus.Failed;
+                    item.Error = ex.GetBaseException().Message;
+                }
+            }
+            await RefreshRecentAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task EnsureDropFolderAsync()
+    {
+        if (_folderReady)
+            return;
+        var slash = DropPath.LastIndexOf('/');
+        var parent = slash == 0 ? "/" : DropPath[..slash];
+        try
+        {
+            await FileStation.CreateFolderAsync(parent, DropPath[(slash + 1)..]);
+        }
+        catch (Exception)
+        {
+            // Usually "already exists"; a real problem (bad share, no write access)
+            // resurfaces from the upload itself with a clearer message.
+        }
+        _folderReady = true;
+    }
+
+    private async Task RefreshRecentAsync()
+    {
+        try
+        {
+            var entries = await FileStation.ListFolderAsync(DropPath);
+            _recent = entries
+                .Where(e => !e.IsFolder)
+                .OrderByDescending(e => e.Modified ?? DateTimeOffset.MinValue)
+                .Take(RecentCount)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            _recent = [];
+        }
+    }
+
+    private void Share(FileEntry entry)
+    {
+        var token = ShareLinks.CreateToken(DropPath, entry.Name, TimeSpan.FromDays(7));
+        _shareUrl = $"{Nav.BaseUri}share/{token}";
+        _shareUrlFor = entry.Name;
+        _copied = false;
+    }
+
+    private async Task CopyShareUrlAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", _shareUrl);
+            _copied = true;
+        }
+        catch (Exception)
+        {
+            // Clipboard needs a secure context; the readonly input is the fallback.
+        }
+    }
+}

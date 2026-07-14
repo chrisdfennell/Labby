@@ -33,6 +33,8 @@ services:
       Qnap__UseHttps: ${QNAP_USE_HTTPS:-false}
       Qnap__Username: ${QNAP_USERNAME:-}
       Qnap__Password: ${QNAP_PASSWORD:-}
+      # Folder the Drop page uploads into (created on first drop).
+      Qnap__DropPath: ${QNAP_DROP_PATH:-/Public/Drop}
       AmbientWeather__ApiKey: ${AMBIENT_API_KEY:-}
       AmbientWeather__ApplicationKey: ${AMBIENT_APP_KEY:-}
       AmbientWeather__DeviceMac: ${AMBIENT_DEVICE_MAC:-}

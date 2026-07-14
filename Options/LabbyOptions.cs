@@ -15,6 +15,12 @@ public sealed class QnapOptions
     public string Username { get; set; } = "";
     public string Password { get; set; } = "";
 
+    /// <summary>
+    /// File Station folder the Drop page uploads into, e.g. "/Public/Drop".
+    /// The parent share must exist; the last folder is created on first drop.
+    /// </summary>
+    public string DropPath { get; set; } = "/Public/Drop";
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Host) && !string.IsNullOrWhiteSpace(Username);
 
     public string BaseUrl => $"{(UseHttps ? "https" : "http")}://{Host}:{Port}/";
