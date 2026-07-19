@@ -144,10 +144,10 @@ public sealed class NetworkOptions
     /// <summary>Track the WAN IP (api.ipify.org, every 15 min) and alert when it changes.</summary>
     public bool WatchPublicIp { get; set; } = true;
 
-    /// <summary>Devices for the "who's home" card, matched by MAC from the ARP table.</summary>
-    public List<KnownDevice> KnownDevices { get; set; } = [];
+    /// <summary>Discover and list every device on the LAN (Devices page). Sweeps the same /24 as presence.</summary>
+    public bool ScanEnabled { get; set; } = true;
 
-    /// <summary>Subnet ping-swept to freshen ARP before matching (only /24 supported).</summary>
+    /// <summary>Subnet the LAN scanner ping-sweeps to freshen ARP (only /24 supported).</summary>
     public string PresenceSubnet { get; set; } = "192.168.1.0/24";
 
     public bool AnyConfigured => PingHosts.Count > 0 || SpeedtestHours > 0 || WatchPublicIp;
@@ -157,12 +157,6 @@ public sealed class PingHost
 {
     public string Name { get; set; } = "";
     public string Host { get; set; } = "";
-}
-
-public sealed class KnownDevice
-{
-    public string Name { get; set; } = "";
-    public string Mac { get; set; } = "";
 }
 
 /// <summary>Scheduled database backups to a NAS share (opt-in via SharePath).</summary>

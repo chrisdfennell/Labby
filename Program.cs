@@ -138,8 +138,9 @@ builder.Services.AddHttpClient(WeatherAlertMonitor.HttpClientName, client =>
 });
 builder.Services.AddSingleton<WeatherAlertMonitor>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WeatherAlertMonitor>());
-builder.Services.AddSingleton<PresenceMonitor>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<PresenceMonitor>());
+builder.Services.AddSingleton<DeviceStore>();
+builder.Services.AddSingleton<LanScanner>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<LanScanner>());
 builder.Services.AddHostedService<NasHealthMonitor>();
 
 // Behind a TLS-terminating reverse proxy (e.g. nginx-proxy-manager), honor its

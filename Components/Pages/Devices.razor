@@ -1,0 +1,205 @@
+@page "/devices"
+@rendermode InteractiveServer
+@using Microsoft.Extensions.Options
+@inject LanScanner Scanner
+@inject DeviceStore Store
+@inject IOptions<NetworkOptions> Config
+@implements IDisposable
+
+<PageTitle>Labby — Devices</PageTitle>
+
+@{ var hosts = Scanner.Hosts; }
+
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
+    <h1 class="mb-0">🔍 LAN Devices</h1>
+    <button class="btn btn-sm btn-outline-primary" disabled="@(Scanner.IsScanning || _busy)" @onclick="ScanNowAsync">
+        @(Scanner.IsScanning || _busy ? "scanning…" : "▶ Scan now")
+    </button>
+</div>
+<p class="text-muted mb-4">
+    <strong class="state-up">@hosts.Count(h => h.Online)</strong> online ·
+    @hosts.Count seen ·
+    <strong>@hosts.Count(h => h.Monitored)</strong> monitored ·
+    sweeping <code>@Config.Value.PresenceSubnet</code>
+    @if (Scanner.LastScan is { } at)
+    {
+        <span> · last scan @at.ToString("HH:mm:ss")</span>
+    }
+    @if (_error is not null)
+    {
+        <span class="text-danger"> · @_error</span>
+    }
+</p>
+
+@if (!Config.Value.ScanEnabled)
+{
+    <div class="alert alert-secondary">
+        LAN scanning is off. Set <code>Network:ScanEnabled</code> to <code>true</code> in <code>appsettings.json</code>.
+    </div>
+}
+else if (hosts.Count == 0)
+{
+    <div class="alert alert-secondary">
+        No devices discovered yet — the first sweep runs shortly after startup (it takes ~20s), or hit <em>Scan now</em>.
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr>
+                    <th style="width:1%" title="Monitor: alert when this device comes/goes">★</th>
+                    <th style="width:1%"></th>
+                    <th>Device</th>
+                    <th>IP</th>
+                    <th>MAC</th>
+                    <th>Vendor</th>
+                    <th class="text-end">Last seen</th>
+                    <th style="width:1%"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var h in hosts)
+                {
+                    <tr class="@(h.Online ? "" : "text-muted")">
+                        <td>
+                            <button class="btn btn-sm btn-link p-0 lh-1 text-decoration-none"
+                                    title="@(h.Monitored ? "Monitored — click to stop" : "Click to monitor")"
+                                    @onclick="() => ToggleMonitoredAsync(h)">
+                                <span style="font-size:1.1rem">@(h.Monitored ? "★" : "☆")</span>
+                            </button>
+                        </td>
+                        <td><span class="@(h.Online ? "state-up" : "state-down")" title="@(h.Online ? "online" : "offline")">@(h.Online ? "●" : "○")</span></td>
+                        <td>
+                            @if (_editingMac == h.Mac)
+                            {
+                                <div class="d-flex gap-1 align-items-center">
+                                    <input class="form-control form-control-sm" style="max-width:14rem" placeholder="@(h.Hostname ?? "name")"
+                                           @bind="_editName" @bind:event="oninput" @onkeydown="e => OnEditKey(e, h)" @ref="_editInput" />
+                                    <button class="btn btn-sm btn-primary" @onclick="() => SaveNameAsync(h)">Save</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEdit">✕</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <span class="fw-semibold">@(h.Name ?? h.Hostname ?? "—")</span>
+                                @if (h.Name is not null && h.Hostname is not null)
+                                {
+                                    <span class="text-muted small"> (@h.Hostname)</span>
+                                }
+                                <button class="btn btn-sm btn-link p-0 ms-1 text-decoration-none" title="Rename" @onclick="() => BeginEdit(h)">✎</button>
+                            }
+                        </td>
+                        <td class="font-monospace">@h.Ip</td>
+                        <td class="font-monospace small">@h.Mac</td>
+                        <td>@h.Vendor</td>
+                        <td class="text-end small">@RelativeTime(h.LastSeen)</td>
+                        <td>
+                            @if (h.Name is not null || h.Monitored)
+                            {
+                                <button class="btn btn-sm btn-link p-0 text-danger text-decoration-none" title="Forget this device's label" @onclick="() => ForgetAsync(h)">🗑</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="text-muted small">
+        ★ a device to make it part of "who's home" and get an alert when it comes or goes (needs <code>Alerts</code> configured).
+        Names and stars are saved to Labby's database — no <code>appsettings.json</code> edits. List auto-refreshes every 15s.
+    </p>
+}
+
+@code {
+    private Timer? _refreshTimer;
+    private bool _busy;
+    private string? _error;
+    private string? _editingMac;
+    private string _editName = "";
+    private ElementReference _editInput;
+    private bool _focusEdit;
+
+    protected override async Task OnInitializedAsync() => await Scanner.RefreshLabelsAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _refreshTimer = new Timer(_ => _ = InvokeAsync(StateHasChanged), null,
+                TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+        }
+        if (_focusEdit)
+        {
+            _focusEdit = false;
+            try { await _editInput.FocusAsync(); } catch { /* row may have re-rendered */ }
+        }
+    }
+
+    private async Task ScanNowAsync()
+    {
+        _busy = true;
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            _error = await Scanner.TriggerAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void BeginEdit(LanScanner.Host h)
+    {
+        _editingMac = h.Mac;
+        _editName = h.Name ?? "";
+        _focusEdit = true;
+    }
+
+    private void CancelEdit()
+    {
+        _editingMac = null;
+        _editName = "";
+    }
+
+    private async Task OnEditKey(KeyboardEventArgs e, LanScanner.Host h)
+    {
+        if (e.Key == "Enter")
+            await SaveNameAsync(h);
+        else if (e.Key == "Escape")
+            CancelEdit();
+    }
+
+    private async Task SaveNameAsync(LanScanner.Host h)
+    {
+        await Store.SetNameAsync(h.Mac, _editName);
+        await Scanner.RefreshLabelsAsync();
+        CancelEdit();
+    }
+
+    private async Task ToggleMonitoredAsync(LanScanner.Host h)
+    {
+        await Store.SetMonitoredAsync(h.Mac, !h.Monitored);
+        await Scanner.RefreshLabelsAsync();
+    }
+
+    private async Task ForgetAsync(LanScanner.Host h)
+    {
+        await Store.DeleteAsync(h.Mac);
+        await Scanner.RefreshLabelsAsync();
+    }
+
+    private static string RelativeTime(DateTimeOffset at)
+    {
+        var d = DateTimeOffset.Now - at;
+        if (d < TimeSpan.FromMinutes(1)) return "just now";
+        if (d < TimeSpan.FromHours(1)) return $"{(int)d.TotalMinutes}m ago";
+        if (d < TimeSpan.FromDays(1)) return $"{(int)d.TotalHours}h ago";
+        return at.ToString("MMM d");
+    }
+
+    public void Dispose() => _refreshTimer?.Dispose();
+}
