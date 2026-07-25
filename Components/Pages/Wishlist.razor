@@ -1,0 +1,29 @@
+@page "/wishlist"
+@using Microsoft.Extensions.Options
+@inject IOptions<WishlistOptions> Config
+
+<PageTitle>Labby — Wishlist</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">🎁 Wishlist</h1>
+    @if (Config.Value.IsConfigured)
+    {
+        <a class="btn btn-sm btn-outline-secondary ms-auto" href="@Config.Value.Url" target="_blank" rel="noreferrer">
+            Open in new tab ↗
+        </a>
+    }
+</div>
+
+@if (!Config.Value.IsConfigured)
+{
+    <div class="alert alert-warning">
+        No wishlist configured — set <code>Wishlist:Url</code> (env <code>WISHLIST_URL</code>) to a browser-reachable
+        wishlist app, e.g. <code>http://fennell-nas:54321</code>.
+    </div>
+}
+else
+{
+    <div class="kontainr-frame-wrap">
+        <iframe src="@Config.Value.Url" title="Christmas wishlist" class="kontainr-frame"></iframe>
+    </div>
+}

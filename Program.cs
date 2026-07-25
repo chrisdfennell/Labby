@@ -18,6 +18,7 @@ builder.Services.Configure<KontainrOptions>(builder.Configuration.GetSection(Kon
 builder.Services.Configure<TerminalOptions>(builder.Configuration.GetSection(TerminalOptions.SectionName));
 builder.Services.Configure<VsCodeOptions>(builder.Configuration.GetSection(VsCodeOptions.SectionName));
 builder.Services.Configure<OsintOptions>(builder.Configuration.GetSection(OsintOptions.SectionName));
+builder.Services.Configure<WishlistOptions>(builder.Configuration.GetSection(WishlistOptions.SectionName));
 builder.Services.Configure<GitOptions>(builder.Configuration.GetSection(GitOptions.SectionName));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
 builder.Services.Configure<HistoryOptions>(builder.Configuration.GetSection(HistoryOptions.SectionName));
