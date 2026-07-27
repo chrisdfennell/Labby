@@ -18,7 +18,7 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **VS Code** (`/vscode`) | Embeds a [code-server](https://github.com/coder/code-server) / VS Code Web instance via `VsCode:Url` / env `VSCODE_URL` — browser-loaded iframe |
 | **Trends** (`/trends`) | Any stored metric charted over 24h/7d/30d: NAS CPU/RAM/temps, ping RTT, hashrate, speedtests, volume usage |
 | **Notes** (`/notes`) | Markdown notes/runbooks persisted to SQLite, with live preview |
-| **Wishlist** (`/wishlist`) | Embeds a wishlist app via `Wishlist:Url` / env `WISHLIST_URL` — browser-loaded iframe, hidden when unset |
+| **Wishlist** (`/wishlist`) | Embeds a wishlist app via `Wishlist:Url` / env `WISHLIST_URL` (append `?token=…` if it is token-protected) — browser-loaded iframe, hidden when unset. Loads the app's `wishlist-embed.js` helper so the frame grows to fit the list instead of scrolling inside a box |
 
 Everywhere: **Ctrl+K / Cmd+K** opens a command palette that jumps to any page, service, or quick link. Labby also ships a web-app manifest, so "Add to Home Screen" on a phone gets a proper icon and standalone window (full PWA install requires HTTPS — put Labby behind a reverse proxy with a certificate if you want that).
 

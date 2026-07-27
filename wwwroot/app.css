@@ -1113,6 +1113,17 @@ html.kiosk article.content {
     border: 0;
 }
 
+/* ── Wishlist embed ──────────────────────────────────────────────────── */
+/* The wishlist's embed helper (see wishlist.js) sets an inline height that fits
+   the whole list, so this is only the height before the first message arrives —
+   no viewport-height sizing and no min-height to fight the height it sets. */
+.wishlist-frame {
+    display: block;
+    width: 100%;
+    height: 600px;
+    border: 0;
+}
+
 /* ── Scrollbars ──────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
     width: 10px;

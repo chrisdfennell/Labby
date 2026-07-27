@@ -18,12 +18,14 @@
 {
     <div class="alert alert-warning">
         No wishlist configured — set <code>Wishlist:Url</code> (env <code>WISHLIST_URL</code>) to a browser-reachable
-        wishlist app, e.g. <code>http://fennell-nas:54321</code>.
+        wishlist app, e.g. <code>https://wishlist.fennellfamily.org</code>, plus <code>?token=…</code> if it is
+        token-protected.
     </div>
 }
 else
 {
+    @* data-wishlist is what the app's embed helper looks for; wishlist.js loads it. *@
     <div class="kontainr-frame-wrap">
-        <iframe src="@Config.Value.Url" title="Christmas wishlist" class="kontainr-frame"></iframe>
+        <iframe data-wishlist src="@Config.Value.Url" title="Wishlist" class="wishlist-frame"></iframe>
     </div>
 }

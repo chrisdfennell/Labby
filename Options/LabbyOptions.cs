@@ -83,7 +83,11 @@ public sealed class WishlistOptions
 {
     public const string SectionName = "Wishlist";
 
-    /// <summary>Browser-reachable URL of the Christmas wishlist app (iframe src, so it must resolve from the client).</summary>
+    /// <summary>
+    /// Browser-reachable URL of the Christmas wishlist app (iframe src, so it must resolve from the client).
+    /// Carries the app's <c>?token=…</c> when it is token-protected — kept in the environment, never in
+    /// appsettings, because the repo is public.
+    /// </summary>
     public string Url { get; set; } = "";
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
