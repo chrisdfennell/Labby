@@ -209,6 +209,15 @@ docker compose -f docker-compose.hub.yml pull
 docker compose -f docker-compose.hub.yml up -d
 ```
 
+### Restart and rebuild from Settings
+
+Settings → **Labby container** drives the container Labby itself runs in over the mounted `docker.sock`:
+
+- **Restart container** bounces it — a few seconds of downtime, and the page reconnects on its own.
+- **Rebuild & recreate** builds the image from the source in the compose project's directory and recreates the container with it. Labby can't build itself, so the work runs in a detached `docker:cli` helper (container `labby-rebuild`) that gets the socket and the project directory bind-mounted, and runs `docker compose build` then `up -d` for Labby's own service. Which project that is comes from the compose labels on the running container, so nothing needs configuring. The build takes a few minutes; a failed build leaves the running Labby alone, and **Build log** shows what the helper printed.
+
+Both need `/var/run/docker.sock` mounted (every compose file here does it). Rebuild also needs the source next to the compose file — on a `docker-compose.hub.yml` deployment there's nothing to build from, so use the update button instead.
+
 ### HTTPS via a reverse proxy
 
 Labby serves plain HTTP; for HTTPS (which unlocks real PWA install and the clipboard API), front it with a proxy like nginx-proxy-manager:

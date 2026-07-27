@@ -130,6 +130,7 @@ builder.Services.AddSingleton<BackupService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BackupService>());
 builder.Services.AddHttpClient(UpdateService.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<UpdateService>();
+builder.Services.AddSingleton<SelfMaintenanceService>();
 builder.Services.AddSingleton<DigestService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DigestService>());
 builder.Services.AddHttpClient(WeatherAlertMonitor.HttpClientName, client =>

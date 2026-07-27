@@ -5,6 +5,7 @@
 @inject MetricsStore Metrics
 @inject BackupService Backups
 @inject UpdateService Updates
+@inject SelfMaintenanceService Maintenance
 @inject DigestService Digest
 @inject IOptions<BackupOptions> BackupConfig
 @inject IJSRuntime Js
@@ -132,6 +133,80 @@
     </div>
     <div class="col-12">
         <div class="card">
+            <div class="card-header">🐳 Labby container</div>
+            <div class="card-body">
+                @if (!Maintenance.IsAvailable)
+                {
+                    <p class="text-muted small mb-0">
+                        Needs the <code>/var/run/docker.sock</code> mount — available on the Docker deployments.
+                    </p>
+                }
+                else if (_self is null)
+                {
+                    <p class="text-muted small mb-0">
+                        Couldn't find Labby's own container over the Docker socket@(_maintenanceError is { } lookupError ? $" — {lookupError}" : "").
+                    </p>
+                }
+                else
+                {
+                    <p class="text-muted small mb-2">
+                        Container <code>@_self.Name</code>@if (_self.Compose is { } compose)
+                        {
+                            <text> · compose service <code>@compose.Service</code> of project <code>@compose.Project</code> in <code>@compose.WorkingDir</code></text>
+                        }
+                        else
+                        {
+                            <text> · not started by docker compose, so there's no project to rebuild from</text>
+                        }
+                    </p>
+                    <p class="text-muted small mb-2">
+                        Restart bounces the container — Labby is gone for a few seconds and this page reconnects on its own.
+                        Rebuild builds the image from the source in the project directory and recreates the container with it,
+                        which takes a few minutes; a failed build leaves the running Labby alone.
+                    </p>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@_restarting" @onclick="RestartContainerAsync">
+                            @(_restarting ? "restarting…" : "🔄 Restart container")
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary"
+                                disabled="@(!_self.CanRebuild || _rebuilding || _rebuildStatus is { Running: true })"
+                                @onclick="RebuildContainerAsync">
+                            @(_rebuilding ? "starting build…" : "🔨 Rebuild & recreate")
+                        </button>
+                        @if (_rebuildStatus is { Running: true })
+                        {
+                            <span class="state-warn small">⏳ Building — Labby restarts when the image is ready.</span>
+                        }
+                        else if (_rebuildStatus is { } status)
+                        {
+                            var when = status.FinishedAt?.ToLocalTime().ToString("MMM d · HH:mm");
+                            @if (status.ExitCode == 0)
+                            {
+                                <span class="state-up small">✓ Last rebuild succeeded@(when is null ? "" : $" — {when}")</span>
+                            }
+                            else
+                            {
+                                <span class="text-danger small">✗ Last rebuild failed with exit @status.ExitCode@(when is null ? "" : $" — {when}")</span>
+                            }
+                        }
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@_logLoading" @onclick="LoadRebuildLogAsync">
+                            @(_logLoading ? "loading…" : "📋 Build log")
+                        </button>
+                        @if (_maintenanceError is { } actionError)
+                        {
+                            <span class="text-danger small">@actionError</span>
+                        }
+                    </div>
+                    @if (_rebuildLog is { } log)
+                    {
+                        <pre class="container-logs mt-2">@(log.Length == 0 ? "No build output yet." : log)</pre>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
             <div class="card-header">📺 Kiosk / TV mode</div>
             <div class="card-body">
                 <p class="text-muted small">
@@ -216,6 +291,13 @@
     private bool _updating;
     private UpdateService.UpdateCheck? _updateCheck;
     private IReadOnlyList<MetricsStore.AlertRecord> _alerts = [];
+    private SelfMaintenanceService.SelfInfo? _self;
+    private SelfMaintenanceService.RebuildStatus? _rebuildStatus;
+    private string? _rebuildLog;
+    private string? _maintenanceError;
+    private bool _restarting;
+    private bool _rebuilding;
+    private bool _logLoading;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -224,7 +306,23 @@
         _theme = await Js.InvokeAsync<string>("labbyTheme.get");
         _alerts = await Metrics.GetAlertsAsync();
         _snoozedUntil = await Alerts.GetSnoozedUntilAsync();
+        await LoadContainerAsync();
         StateHasChanged();
+    }
+
+    private async Task LoadContainerAsync()
+    {
+        if (!Maintenance.IsAvailable)
+            return;
+        try
+        {
+            _self = await Maintenance.DescribeSelfAsync();
+            _rebuildStatus = await Maintenance.GetRebuildStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            _maintenanceError = ex.GetBaseException().Message;
+        }
     }
 
     private async Task SetThemeAsync(string name)
@@ -286,6 +384,68 @@
             _updating = false;
         }
     }
+
+    private async Task RestartContainerAsync()
+    {
+        if (!await ConfirmAsync("Restart the Labby container? Labby is unavailable for a few seconds."))
+            return;
+        _maintenanceError = null;
+        _restarting = true;
+        try
+        {
+            // Stays "restarting…" on success — this circuit dies with the container.
+            await Maintenance.RestartAsync();
+        }
+        catch (Exception ex)
+        {
+            _maintenanceError = ex.GetBaseException().Message;
+            _restarting = false;
+        }
+    }
+
+    private async Task RebuildContainerAsync()
+    {
+        if (!await ConfirmAsync("Rebuild the Labby image from the source in the project directory and recreate the "
+                               + "container? The build takes a few minutes and Labby restarts at the end of it."))
+            return;
+        _maintenanceError = null;
+        _rebuilding = true;
+        _rebuildLog = null;
+        try
+        {
+            await Maintenance.RebuildAsync();
+            _rebuildStatus = await Maintenance.GetRebuildStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            _maintenanceError = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _rebuilding = false;
+        }
+    }
+
+    private async Task LoadRebuildLogAsync()
+    {
+        _logLoading = true;
+        _maintenanceError = null;
+        try
+        {
+            _rebuildStatus = await Maintenance.GetRebuildStatusAsync();
+            _rebuildLog = _rebuildStatus is null ? "" : await Maintenance.GetRebuildLogAsync();
+        }
+        catch (Exception ex)
+        {
+            _maintenanceError = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _logLoading = false;
+        }
+    }
+
+    private ValueTask<bool> ConfirmAsync(string message) => Js.InvokeAsync<bool>("confirm", message);
 
     private async Task SnoozeAsync(int hours)
     {

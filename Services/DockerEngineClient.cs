@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Net;
 using System.Net.Sockets;
 
 namespace Labby.Services;
@@ -64,23 +65,38 @@ public sealed class DockerEngineClient
     }
 
     /// <summary>Creates and starts a short-lived helper container (auto-removed on exit).</summary>
-    public async Task RunOneShotAsync(string image, string[] cmd, string[] binds, CancellationToken ct = default)
+    public Task RunOneShotAsync(string image, string[] cmd, string[] binds, CancellationToken ct = default) =>
+        RunHelperAsync(image, cmd, binds, ct: ct);
+
+    /// <summary>
+    /// Creates and starts a helper container. Give it a name and <paramref name="autoRemove"/>
+    /// false to keep it around after it exits — that's the only way to read what it printed.
+    /// </summary>
+    public async Task RunHelperAsync(string image, string[] cmd, string[] binds, string? name = null,
+        string? workingDir = null, bool autoRemove = true, CancellationToken ct = default)
     {
         if (_http.Value is not { } http)
             throw new InvalidOperationException("Docker socket not available.");
 
-        // Make sure the helper image exists locally (no-op if already pulled).
-        using (var pull = await http.PostAsync($"images/create?fromImage={Uri.EscapeDataString(image)}&tag=latest", null, ct))
+        var (repo, tag) = SplitImage(image);
+        // Make sure the helper image exists locally (no-op if already pulled). Read the
+        // headers only: the pull streams progress for as long as it takes, which is more
+        // than the client's request timeout allows for.
+        using (var request = new HttpRequestMessage(HttpMethod.Post,
+                   $"images/create?fromImage={Uri.EscapeDataString(repo)}&tag={Uri.EscapeDataString(tag)}"))
+        using (var pull = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct))
         {
-            await pull.Content.ReadAsStringAsync(ct); // drain the progress stream
+            await pull.Content.CopyToAsync(Stream.Null, ct); // drain the progress stream
         }
 
-        using var create = await http.PostAsync("containers/create",
+        var createUrl = name is { Length: > 0 } ? $"containers/create?name={Uri.EscapeDataString(name)}" : "containers/create";
+        using var create = await http.PostAsync(createUrl,
             System.Net.Http.Json.JsonContent.Create(new
             {
-                Image = $"{image}:latest",
+                Image = $"{repo}:{tag}",
                 Cmd = cmd,
-                HostConfig = new { Binds = binds, AutoRemove = true },
+                WorkingDir = workingDir ?? "",
+                HostConfig = new { Binds = binds, AutoRemove = autoRemove },
             }), ct);
         create.EnsureSuccessStatusCode();
         using var doc = System.Text.Json.JsonDocument.Parse(await create.Content.ReadAsStringAsync(ct));
@@ -88,6 +104,80 @@ public sealed class DockerEngineClient
 
         using var start = await http.PostAsync($"containers/{id}/start", null, ct);
         start.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>"docker:cli" → ("docker", "cli"); a bare name gets :latest. Registry ports keep their colon.</summary>
+    private static (string Repo, string Tag) SplitImage(string image)
+    {
+        var colon = image.LastIndexOf(':');
+        return colon > 0 && !image[(colon + 1)..].Contains('/') ? (image[..colon], image[(colon + 1)..]) : (image, "latest");
+    }
+
+    public sealed record ContainerDetail(string Id, string Name, bool Running, int ExitCode,
+        DateTimeOffset? FinishedAt, IReadOnlyDictionary<string, string> Labels);
+
+    /// <summary>Inspects a container by id or name. Null when the socket is absent or nothing matches.</summary>
+    public async Task<ContainerDetail?> InspectAsync(string idOrName, CancellationToken ct = default)
+    {
+        if (_http.Value is not { } http)
+            return null;
+
+        using var response = await http.GetAsync($"containers/{Uri.EscapeDataString(idOrName)}/json", ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        response.EnsureSuccessStatusCode();
+
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        var root = doc.RootElement;
+        var state = root.GetProperty("State");
+
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (root.TryGetProperty("Config", out var config)
+            && config.TryGetProperty("Labels", out var raw)
+            && raw.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            foreach (var label in raw.EnumerateObject())
+                labels[label.Name] = label.Value.GetString() ?? "";
+        }
+
+        // Docker writes year 1 for "never finished"; that's not a timestamp worth showing.
+        DateTimeOffset? finishedAt = state.TryGetProperty("FinishedAt", out var finished)
+                                     && DateTimeOffset.TryParse(finished.GetString(), out var at) && at.Year > 1
+            ? at
+            : null;
+
+        return new ContainerDetail(
+            root.GetProperty("Id").GetString()!,
+            (root.GetProperty("Name").GetString() ?? "").TrimStart('/'),
+            state.GetProperty("Running").GetBoolean(),
+            state.TryGetProperty("ExitCode", out var exit) ? exit.GetInt32() : 0,
+            finishedAt,
+            labels);
+    }
+
+    /// <summary>
+    /// Restarts a container. Docker answers only once it is up again, so restarting
+    /// the container this process runs in never sees a response — see SelfMaintenanceService.
+    /// </summary>
+    public async Task RestartAsync(string idOrName, int stopTimeoutSeconds = 10, CancellationToken ct = default)
+    {
+        if (_http.Value is not { } http)
+            throw new InvalidOperationException("Docker socket not available (mount /var/run/docker.sock into the labby container).");
+
+        using var response = await http.PostAsync(
+            $"containers/{Uri.EscapeDataString(idOrName)}/restart?t={stopTimeoutSeconds}", null, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Force-removes a container. A container that isn't there is already the wanted state.</summary>
+    public async Task RemoveAsync(string idOrName, CancellationToken ct = default)
+    {
+        if (_http.Value is not { } http)
+            return;
+
+        using var response = await http.DeleteAsync($"containers/{Uri.EscapeDataString(idOrName)}?force=1", ct);
+        if (response.StatusCode != HttpStatusCode.NotFound)
+            response.EnsureSuccessStatusCode();
     }
 
     /// <summary>Creates an interactive TTY exec (bash when the image has it, else sh).</summary>
