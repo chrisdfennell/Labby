@@ -223,6 +223,21 @@ public sealed class AlertOptions
     public bool IsEnabled => !string.IsNullOrWhiteSpace(WebhookUrl) || PushoverEnabled;
 }
 
+/// <summary>Self-update settings — the same update the Settings page runs, reachable from CI.</summary>
+public sealed class UpdateOptions
+{
+    public const string SectionName = "Updates";
+
+    /// <summary>
+    /// Shared secret CI presents to <c>POST /api/deploy</c> to run the update. Empty
+    /// leaves the endpoint off entirely (it 404s), so the hook is opt-in per deployment.
+    /// Kept in the environment, never in appsettings — the repo is public.
+    /// </summary>
+    public string DeployToken { get; set; } = "";
+
+    public bool DeployHookEnabled => !string.IsNullOrWhiteSpace(DeployToken);
+}
+
 public sealed class AuthOptions
 {
     public const string SectionName = "Auth";
@@ -239,6 +254,14 @@ public sealed class DashboardOptions
     public const string SectionName = "Dashboard";
 
     public List<MonitoredService> Services { get; set; } = [];
+
+    /// <summary>
+    /// Consecutive failed probes before a service is called DOWN and alerted on.
+    /// 1 fires on the first blip; the default 2 rides out a single bad response
+    /// (a timeout, a dropped connection) at the cost of ~30s slower detection.
+    /// Override per service with <see cref="MonitoredService.FailuresBeforeDown"/>.
+    /// </summary>
+    public int FailuresBeforeDown { get; set; } = 2;
 
     /// <summary>NMMiner-style devices shown in the dashboard's Miners section.</summary>
     public List<MinerEndpoint> Miners { get; set; } = [];
@@ -278,4 +301,11 @@ public sealed class MonitoredService
 
     /// <summary>Optional MAC address; when set, a Wake-on-LAN button appears while the service is down.</summary>
     public string? Mac { get; set; }
+
+    /// <summary>
+    /// Consecutive failed probes before this service is called DOWN. Overrides
+    /// <see cref="DashboardOptions.FailuresBeforeDown"/> — raise it for the one
+    /// flaky service instead of desensitising the whole dashboard.
+    /// </summary>
+    public int? FailuresBeforeDown { get; set; }
 }

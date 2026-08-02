@@ -23,6 +23,9 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
     private readonly ConcurrentDictionary<string, ServiceStatus> _statuses = new();
     private readonly ConcurrentDictionary<string, List<ProbeSample>> _history = new();
 
+    /// <summary>Failed probes since the last good one, per service — the flap filter.</summary>
+    private readonly ConcurrentDictionary<string, int> _failures = new();
+
     public event Action? Changed;
 
     public IReadOnlyList<ServiceStatus> Snapshot =>
@@ -87,6 +90,25 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
         var now = DateTimeOffset.Now;
         var latency = up ? stopwatch.ElapsedMilliseconds : (long?)null;
 
+        _statuses.TryGetValue(service.Name, out var previous);
+
+        // One bad probe is nearly always a blip — a dropped connection, a timeout, a
+        // half-open socket answering garbage — and calling that an outage produces a
+        // DOWN/UP alert pair a poll apart. Hold the previous state until the failure
+        // repeats; a service that is really down still trips within a cycle or two.
+        var threshold = Math.Max(1, service.FailuresBeforeDown ?? options.Value.FailuresBeforeDown);
+        var failures = up ? 0 : _failures.GetValueOrDefault(service.Name) + 1;
+        _failures[service.Name] = failures;
+
+        var reportedUp = up ? true
+            : failures >= threshold ? false
+            : previous?.IsUp; // still in the grace window — null only before the first good probe
+        if (!up && reportedUp is not false)
+        {
+            logger.LogInformation("{Service} probe {Failures}/{Threshold} failed, holding state: {Error}",
+                service.Name, failures, threshold, error);
+        }
+
         // Only this poller writes the list, but pages read snapshots concurrently.
         var history = _history.GetOrAdd(service.Name, _ => new List<ProbeSample>(HistoryLength));
         ProbeSample[] samples;
@@ -98,7 +120,6 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
             samples = [.. history];
         }
 
-        _statuses.TryGetValue(service.Name, out var previous);
         _statuses[service.Name] = new ServiceStatus
         {
             Name = service.Name,
@@ -106,22 +127,25 @@ public sealed class ServiceHealthMonitor(IHttpClientFactory httpFactory, IOption
             Icon = service.Icon,
             Description = service.Description,
             Mac = service.Mac,
-            IsUp = up,
-            LatencyMs = latency,
+            IsUp = reportedUp,
+            // Keep the last good latency while holding state, so a suppressed blip
+            // doesn't blank the tile for a cycle.
+            LatencyMs = up ? latency : reportedUp == true ? previous?.LatencyMs : null,
             CheckedAt = now,
-            Error = error,
+            Error = reportedUp == false ? error : null,
             History = samples,
             UptimePercent = Math.Round(samples.Count(s => s.Up) * 100.0 / samples.Length, 1),
-            StateSince = previous?.IsUp == up ? previous.StateSince : now,
+            // Both sides are nullable now, so null == null would match with no `previous` to read.
+            StateSince = previous is not null && previous.IsUp == reportedUp ? previous.StateSince : now,
         };
 
         // Alert on transitions only — the first-ever probe of a service stays quiet.
-        if (previous?.IsUp is { } wasUp && wasUp != up)
+        if (previous?.IsUp is { } wasUp && reportedUp is { } nowUp && wasUp != nowUp)
         {
-            await historyStore.RecordTransitionAsync(service.Name, up, now, error, ct);
-            var message = up
+            await historyStore.RecordTransitionAsync(service.Name, nowUp, now, error, ct);
+            var message = nowUp
                 ? $"🟢 {service.Name} is back UP ({latency}ms) after {Format.ShortDuration(now - (previous.StateSince ?? now))} down"
-                : $"🔴 {service.Name} is DOWN — {error ?? "no response"}";
+                : $"🔴 {service.Name} is DOWN — {error ?? "no response"}" + (threshold > 1 ? $" ({threshold} checks in a row)" : "");
             await alerts.SendAsync(message, ct);
         }
     }
