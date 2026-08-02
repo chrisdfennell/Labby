@@ -927,6 +927,12 @@ html.kiosk article.content {
         max-width: 12rem;
     }
 
+/* Gap cards can run to hundreds of rows; keep them from stretching the grid. */
+.missing-list {
+    max-height: 24rem;
+    overflow-y: auto;
+}
+
 .media-upcoming {
     padding: 0.35rem 0;
 }

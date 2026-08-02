@@ -18,6 +18,10 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     private static readonly TimeSpan LiveTtl = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan CalendarTtl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan TargetsTtl = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan MissingTtl = TimeSpan.FromMinutes(5);
+
+    /// <summary>How many missing rows each Arr is asked for. Totals are reported separately.</summary>
+    private const int MissingPageSize = 200;
 
     private readonly MediaOptions _options = options.Value;
     private readonly Cached<NowPlayingSnapshot> _nowPlaying = new();
@@ -30,6 +34,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     private readonly Cached<WatchStatsSnapshot> _watchStats = new();
     private readonly Cached<ArrTargets> _radarrTargets = new();
     private readonly Cached<ArrTargets> _sonarrTargets = new();
+    private readonly Cached<MissingSnapshot> _missing = new();
     private readonly ConcurrentDictionary<string, string> _titleCache = new();
     private string? _qbitSid;
 
@@ -44,6 +49,9 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
 
     /// <summary>The search box appears whenever something can answer it.</summary>
     public bool SearchConfigured => OverseerrConfigured || SonarrConfigured || RadarrConfigured;
+
+    /// <summary>Only the Arrs know what is missing, so the gaps section needs one of them.</summary>
+    public bool MissingConfigured => SonarrConfigured || RadarrConfigured;
 
     public Task<NowPlayingSnapshot> GetNowPlayingAsync(CancellationToken ct = default) =>
         GetCachedAsync(_nowPlaying, LiveTtl, FetchNowPlayingAsync, ct);
@@ -68,6 +76,9 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
 
     public Task<WatchStatsSnapshot> GetWatchStatsAsync(CancellationToken ct = default) =>
         GetCachedAsync(_watchStats, CalendarTtl, FetchWatchStatsAsync, ct);
+
+    public Task<MissingSnapshot> GetMissingAsync(CancellationToken ct = default) =>
+        GetCachedAsync(_missing, MissingTtl, FetchMissingAsync, ct);
 
     /// <summary>Stops a Plex stream via Tautulli.</summary>
     public async Task TerminateSessionAsync(string sessionKey, CancellationToken ct = default)
@@ -1005,6 +1016,271 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             ErrorMessage = problem.Length > 0 ? problem : null,
             HasProblem = trackedStatus is "warning" or "error" || Str(record, "status") is "warning" or "failed",
         };
+    }
+
+    // ── Missing / wanted ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Three independent gap questions answered at once: which monitored movies
+    /// have no file, which aired episodes have no file, and which movie
+    /// collections have been started but never finished. Each fails on its own.
+    /// </summary>
+    private async Task<MissingSnapshot> FetchMissingAsync(CancellationToken ct)
+    {
+        // Kick all three off before awaiting, so the slowest one sets the pace.
+        var episodesTask = _options.Sonarr.IsConfigured ? FetchMissingEpisodesAsync(ct) : null;
+        var moviesTask = _options.Radarr.IsConfigured ? FetchMissingMoviesAsync(ct) : null;
+        var gapsTask = _options.Radarr.IsConfigured ? FetchCollectionGapsAsync(ct) : null;
+
+        var (episodes, sonarrError) = await TryFetchAsync(episodesTask, "Sonarr missing", ct);
+        var (movies, radarrError) = await TryFetchAsync(moviesTask, "Radarr missing", ct);
+        var (gaps, collectionsError) = await TryFetchAsync(gapsTask, "Radarr collections", ct);
+
+        return new MissingSnapshot
+        {
+            Movies = movies?.Movies ?? [],
+            TotalMissingMovies = movies?.Total ?? 0,
+            Seasons = episodes?.Seasons ?? [],
+            TotalMissingEpisodes = episodes?.Total ?? 0,
+            Collections = gaps ?? [],
+            SonarrError = sonarrError,
+            RadarrError = radarrError,
+            CollectionsError = collectionsError,
+        };
+    }
+
+    private sealed record MissingEpisodesResult(List<MissingSeason> Seasons, int Total);
+
+    private sealed record MissingMoviesResult(List<MissingMovie> Movies, int Total);
+
+    /// <summary>
+    /// Sonarr's wanted list is per episode, but a run of missing episodes is one
+    /// decision ("go get season 2"), so they are folded into season rows here.
+    /// </summary>
+    private async Task<MissingEpisodesResult> FetchMissingEpisodesAsync(CancellationToken ct)
+    {
+        using var doc = await GetJsonAsync(
+            $"{_options.Sonarr.Url.TrimEnd('/')}/api/v3/wanted/missing?page=1&pageSize={MissingPageSize}" +
+            "&sortKey=airDateUtc&sortDirection=descending&includeSeries=true&monitored=true",
+            ct, apiKey: _options.Sonarr.ApiKey);
+
+        var rows = new List<(long SeriesId, int Season, string Series, int Episode, DateTimeOffset? Aired)>();
+        foreach (var e in doc.RootElement.GetProperty("records").EnumerateArray())
+        {
+            rows.Add((
+                (long)(Num(e, "seriesId") ?? 0),
+                (int)(Num(e, "seasonNumber") ?? 0),
+                e.TryGetProperty("series", out var s) ? Str(s, "title") : "",
+                (int)(Num(e, "episodeNumber") ?? 0),
+                Date(e, "airDateUtc")));
+        }
+
+        var seasons = rows
+            .GroupBy(r => (r.SeriesId, r.Season))
+            .Select(g => new MissingSeason
+            {
+                SeriesId = g.Key.SeriesId,
+                SeasonNumber = g.Key.Season,
+                Series = g.Select(r => r.Series).FirstOrDefault(t => t.Length > 0) ?? "",
+                EpisodeCount = g.Count(),
+                Episodes = FormatEpisodes(g.Select(r => r.Episode)),
+                NewestAirDate = g.Max(r => r.Aired),
+            })
+            .OrderByDescending(s => s.NewestAirDate ?? DateTimeOffset.MinValue)
+            .ThenBy(s => s.Series)
+            .ToList();
+
+        return new MissingEpisodesResult(seasons, (int)(Num(doc.RootElement, "totalRecords") ?? seasons.Sum(s => s.EpisodeCount)));
+    }
+
+    private static string FormatEpisodes(IEnumerable<int> episodes)
+    {
+        var sorted = episodes.Distinct().OrderBy(e => e).ToList();
+        var shown = string.Join(", ", sorted.Take(6).Select(e => $"E{e:00}"));
+        return sorted.Count > 6 ? $"{shown} +{sorted.Count - 6} more" : shown;
+    }
+
+    private async Task<MissingMoviesResult> FetchMissingMoviesAsync(CancellationToken ct)
+    {
+        using var doc = await GetJsonAsync(
+            $"{_options.Radarr.Url.TrimEnd('/')}/api/v3/wanted/missing?page=1&pageSize={MissingPageSize}" +
+            "&sortKey=digitalRelease&sortDirection=descending&monitored=true",
+            ct, apiKey: _options.Radarr.ApiKey);
+
+        var movies = new List<MissingMovie>();
+        foreach (var m in doc.RootElement.GetProperty("records").EnumerateArray())
+        {
+            var released = new[] { Date(m, "inCinemas"), Date(m, "digitalRelease"), Date(m, "physicalRelease") }
+                .Where(d => d is not null)
+                .Min();
+            movies.Add(new MissingMovie
+            {
+                MovieId = (long)(Num(m, "id") ?? 0),
+                Title = Str(m, "title"),
+                Year = Num(m, "year") is { } y and > 0 ? (int)y : null,
+                ReleasedAt = released,
+                IsAvailable = m.TryGetProperty("isAvailable", out var a) && a.ValueKind == JsonValueKind.True,
+            });
+        }
+
+        // Grabbable titles first; ones still awaiting a release are noise until they land.
+        var ordered = movies
+            .OrderByDescending(m => m.IsAvailable)
+            .ThenByDescending(m => m.ReleasedAt ?? DateTimeOffset.MinValue)
+            .ToList();
+        return new MissingMoviesResult(ordered, (int)(Num(doc.RootElement, "totalRecords") ?? ordered.Count));
+    }
+
+    /// <summary>
+    /// Collections Radarr knows about where some films are tracked and some are
+    /// not — the "you have 3 of the 5" case. Collections with nothing in them are
+    /// franchises Radarr merely learned of and are left out.
+    /// </summary>
+    private async Task<List<CollectionGap>> FetchCollectionGapsAsync(CancellationToken ct)
+    {
+        var baseUrl = _options.Radarr.Url.TrimEnd('/');
+        using var doc = await GetJsonAsync($"{baseUrl}/api/v3/collection", ct, apiKey: _options.Radarr.ApiKey);
+        var collections = doc.RootElement.EnumerateArray().ToList();
+
+        // Radarr marks each film in a collection with isExisting when the library
+        // already tracks it. Older builds omit the flag, so fall back to matching
+        // against the library's TMDB ids — one extra call, and only when needed.
+        var hasExistingFlag = false;
+        foreach (var c in collections)
+        {
+            if (!c.TryGetProperty("movies", out var films))
+                continue;
+            foreach (var f in films.EnumerateArray())
+            {
+                hasExistingFlag = f.TryGetProperty("isExisting", out _);
+                break;
+            }
+            break;
+        }
+
+        HashSet<long> owned = [];
+        if (!hasExistingFlag)
+        {
+            using var library = await GetJsonAsync($"{baseUrl}/api/v3/movie", ct, apiKey: _options.Radarr.ApiKey);
+            owned = library.RootElement.EnumerateArray()
+                .Select(m => (long)(Num(m, "tmdbId") ?? 0))
+                .Where(id => id > 0)
+                .ToHashSet();
+        }
+
+        var gaps = new List<CollectionGap>();
+        foreach (var c in collections)
+        {
+            if (!c.TryGetProperty("movies", out var films))
+                continue;
+            var missing = new List<CollectionMovie>();
+            var have = 0;
+            foreach (var f in films.EnumerateArray())
+            {
+                var tmdbId = (long)(Num(f, "tmdbId") ?? 0);
+                var inLibrary = hasExistingFlag
+                    ? f.TryGetProperty("isExisting", out var existing) && existing.ValueKind == JsonValueKind.True
+                    : owned.Contains(tmdbId);
+                // Films on the import-exclusion list were turned down on purpose.
+                var excluded = f.TryGetProperty("isExcluded", out var ex) && ex.ValueKind == JsonValueKind.True;
+                if (inLibrary)
+                {
+                    have++;
+                }
+                else if (tmdbId > 0 && !excluded)
+                {
+                    missing.Add(new CollectionMovie
+                    {
+                        TmdbId = tmdbId,
+                        Title = Str(f, "title"),
+                        Year = Num(f, "year") is { } y and > 0 ? (int)y : null,
+                    });
+                }
+            }
+            if (have > 0 && missing.Count > 0)
+            {
+                gaps.Add(new CollectionGap
+                {
+                    Title = Str(c, "title"),
+                    OwnedCount = have,
+                    Missing = missing.OrderBy(m => m.Year ?? int.MaxValue).ThenBy(m => m.Title).ToList(),
+                });
+            }
+        }
+        return gaps.OrderByDescending(g => g.OwnedCount).ThenBy(g => g.Title).ToList();
+    }
+
+    /// <summary>
+    /// Asks an Arr to go looking for something it is already monitoring: a whole
+    /// Sonarr season when <paramref name="seasonNumber"/> is given, otherwise the
+    /// whole series, or a single Radarr movie.
+    /// </summary>
+    public async Task SearchForMissingAsync(string source, long id, int? seasonNumber = null, CancellationToken ct = default)
+    {
+        object command;
+        if (source == "Radarr")
+            command = new { name = "MoviesSearch", movieIds = new[] { id } };
+        else if (seasonNumber is { } season)
+            command = new { name = "SeasonSearch", seriesId = id, seasonNumber = season };
+        else
+            command = new { name = "SeriesSearch", seriesId = id };
+
+        var (baseUrl, apiKey) = ArrEndpoint(source);
+        var http = httpFactory.CreateClient(HttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v3/command")
+        {
+            Content = JsonContent.Create(command),
+        };
+        request.Headers.Add("X-Api-Key", apiKey);
+        using var response = await http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ArrErrorAsync(response, ct));
+
+        _queue.At = DateTimeOffset.MinValue; // whatever it grabs should show up promptly
+    }
+
+    /// <summary>
+    /// Adds a collection film Radarr knows of but has never tracked. The gap list
+    /// only carries a TMDB id, so the full record is looked up first and then
+    /// added down the same path as a search hit.
+    /// </summary>
+    public async Task AddMovieByTmdbAsync(long tmdbId, string rootFolderPath, int qualityProfileId, CancellationToken ct = default)
+    {
+        using var doc = await GetJsonAsync(
+            $"{_options.Radarr.Url.TrimEnd('/')}/api/v3/movie/lookup/tmdb?tmdbId={tmdbId}",
+            ct, apiKey: _options.Radarr.ApiKey);
+        // Most builds answer with the movie object; some wrap it in a one-item array.
+        var record = doc.RootElement.ValueKind == JsonValueKind.Array
+            ? doc.RootElement.EnumerateArray().FirstOrDefault()
+            : doc.RootElement;
+        if (record.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException($"Radarr could not look up tmdb:{tmdbId}.");
+
+        await AddToArrAsync(
+            new SearchResult { Source = "Radarr", Type = "movie", ExternalId = tmdbId, Payload = record.GetRawText() },
+            rootFolderPath, qualityProfileId, ct);
+        _missing.At = DateTimeOffset.MinValue; // the collection gap just closed
+    }
+
+    // Each missing lookup is independent — one Arr being down must not blank the others.
+    private async Task<(T? Value, string? Error)> TryFetchAsync<T>(Task<T>? task, string what, CancellationToken ct)
+        where T : class
+    {
+        if (task is null)
+            return (null, null);
+        try
+        {
+            return (await task, null);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "{What} fetch failed", what);
+            return (null, Describe(ex));
+        }
     }
 
     // ── Plex ─────────────────────────────────────────────────────────────

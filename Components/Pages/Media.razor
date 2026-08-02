@@ -507,6 +507,225 @@ else
                 </div>
             </div>
         }
+        @if (Hub.MissingConfigured)
+        {
+            <div class="col-12"><h4 class="mb-0 mt-2">Gaps in the library</h4></div>
+            @if (_missingActionError is not null)
+            {
+                <div class="col-12"><span class="text-danger small">@_missingActionError</span></div>
+            }
+            @if (Hub.RadarrConfigured)
+            {
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between">
+                            <span>🎬 Missing movies</span>
+                            @if (_missing is { TotalMissingMovies: > 0 } m)
+                            {
+                                <span class="text-muted small">@m.TotalMissingMovies wanted</span>
+                            }
+                        </div>
+                        <div class="card-body missing-list">
+                            @if (_missing is null)
+                            {
+                                <span class="text-muted">Loading…</span>
+                            }
+                            else if (_missing.RadarrError is not null)
+                            {
+                                <span class="text-danger small">Radarr: @_missing.RadarrError</span>
+                            }
+                            else if (_missing.Movies.Count == 0)
+                            {
+                                <span class="text-muted">Every monitored movie is on disk. 🎉</span>
+                            }
+                            else
+                            {
+                                @foreach (var movie in _missing.Movies)
+                                {
+                                    <div class="media-upcoming">
+                                        <div class="d-flex justify-content-between align-items-center gap-2">
+                                            <span class="fw-semibold text-truncate" title="@movie.Title">
+                                                @movie.Title @(movie.Year is { } y ? $"({y})" : "")
+                                            </span>
+                                            <span class="text-nowrap">
+                                                @if (_actedOn.Contains(movie.Key))
+                                                {
+                                                    <span class="badge bg-success">searching ✓</span>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="req-btn approve" title="Ask Radarr to search for this movie now"
+                                                            disabled="@_missingActionBusy" @onclick="() => SearchMissingMovieAsync(movie)">🔍 search</button>
+                                                }
+                                            </span>
+                                        </div>
+                                        <div class="text-muted small">
+                                            @(movie.IsAvailable ? "available" : "not released yet")
+                                            @(movie.ReleasedAt is { } at ? $" · {at:MMM yyyy}" : "")
+                                        </div>
+                                    </div>
+                                }
+                                @if (_missing.TotalMissingMovies > _missing.Movies.Count)
+                                {
+                                    <div class="text-muted small mt-2">
+                                        Showing @_missing.Movies.Count of @_missing.TotalMissingMovies — see Radarr for the rest.
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+            @if (Hub.SonarrConfigured)
+            {
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between">
+                            <span>📺 Missing episodes</span>
+                            @if (_missing is { TotalMissingEpisodes: > 0 } s)
+                            {
+                                <span class="text-muted small">@s.TotalMissingEpisodes wanted</span>
+                            }
+                        </div>
+                        <div class="card-body missing-list">
+                            @if (_missing is null)
+                            {
+                                <span class="text-muted">Loading…</span>
+                            }
+                            else if (_missing.SonarrError is not null)
+                            {
+                                <span class="text-danger small">Sonarr: @_missing.SonarrError</span>
+                            }
+                            else if (_missing.Seasons.Count == 0)
+                            {
+                                <span class="text-muted">Every aired episode is on disk. 🎉</span>
+                            }
+                            else
+                            {
+                                var shownEpisodes = _missing.Seasons.Sum(s => s.EpisodeCount);
+                                @foreach (var season in _missing.Seasons)
+                                {
+                                    <div class="media-upcoming">
+                                        <div class="d-flex justify-content-between align-items-center gap-2">
+                                            <span class="fw-semibold text-truncate" title="@season.Series">@season.Series</span>
+                                            <span class="text-nowrap">
+                                                @if (_actedOn.Contains(season.Key))
+                                                {
+                                                    <span class="badge bg-success">searching ✓</span>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="req-btn approve" title="Ask Sonarr to search this whole season now"
+                                                            disabled="@_missingActionBusy" @onclick="() => SearchMissingSeasonAsync(season)">🔍 season</button>
+                                                }
+                                            </span>
+                                        </div>
+                                        <div class="text-muted small text-truncate" title="@season.Episodes">
+                                            @(season.SeasonNumber == 0 ? "Specials" : $"S{season.SeasonNumber:00}")
+                                            · @season.EpisodeCount missing · @season.Episodes
+                                        </div>
+                                    </div>
+                                }
+                                @if (_missing.TotalMissingEpisodes > shownEpisodes)
+                                {
+                                    <div class="text-muted small mt-2">
+                                        Showing the @shownEpisodes most recent of @_missing.TotalMissingEpisodes — see Sonarr for the rest.
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+            @if (Hub.RadarrConfigured)
+            {
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between">
+                            <span>🗂️ Incomplete collections</span>
+                            @if (_missing is { Collections.Count: > 0 } c)
+                            {
+                                <span class="text-muted small">@c.Collections.Count</span>
+                            }
+                        </div>
+                        <div class="card-body missing-list">
+                            @if (_missing is null)
+                            {
+                                <span class="text-muted">Loading…</span>
+                            }
+                            else if (_missing.CollectionsError is not null)
+                            {
+                                <span class="text-danger small">Radarr: @_missing.CollectionsError</span>
+                            }
+                            else if (_missing.Collections.Count == 0)
+                            {
+                                <span class="text-muted">No half-finished collections. 🎉</span>
+                            }
+                            else
+                            {
+                                @if (_arr.TryGetValue("Radarr", out var target))
+                                {
+                                    @if (target.Targets is null)
+                                    {
+                                        <div class="text-muted small">loading folders…</div>
+                                    }
+                                    else if (target.Targets.Error is { } targetError)
+                                    {
+                                        <div class="text-danger small">@targetError</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex flex-wrap gap-2 mb-2">
+                                            <select class="form-select form-select-sm dl-add-target" aria-label="Root folder" @bind="target.Root">
+                                                @foreach (var folder in target.Targets.RootFolders)
+                                                {
+                                                    <option value="@folder">@folder</option>
+                                                }
+                                            </select>
+                                            <select class="form-select form-select-sm dl-add-target" aria-label="Quality profile" @bind="target.ProfileId">
+                                                @foreach (var profile in target.Targets.QualityProfiles)
+                                                {
+                                                    <option value="@profile.Id">@profile.Name</option>
+                                                }
+                                            </select>
+                                        </div>
+                                    }
+                                }
+                                @foreach (var collection in _missing.Collections)
+                                {
+                                    <div class="search-group">
+                                        <div class="search-group-head d-flex justify-content-between gap-2">
+                                            <span class="fw-semibold small text-truncate" title="@collection.Title">@collection.Title</span>
+                                            <span class="small text-nowrap">@collection.OwnedCount of @(collection.OwnedCount + collection.Missing.Count)</span>
+                                        </div>
+                                        @foreach (var film in collection.Missing)
+                                        {
+                                            <div class="media-upcoming d-flex justify-content-between align-items-center gap-2">
+                                                <span class="text-truncate" title="@film.Title">
+                                                    @film.Title <span class="text-muted">@(film.Year is { } fy ? $"({fy})" : "")</span>
+                                                </span>
+                                                <span class="text-nowrap">
+                                                    @if (_actedOn.Contains(film.Key))
+                                                    {
+                                                        <span class="badge bg-success">added ✓</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button type="button" class="req-btn approve" title="Add to Radarr, monitored, and search for it now"
+                                                                disabled="@(_missingActionBusy || !CanAdd("Radarr"))"
+                                                                @onclick="() => AddCollectionMovieAsync(film)">+ add</button>
+                                                    }
+                                                </span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        }
         @if (Hub.TautulliConfigured)
         {
             <div class="col-12"><h4 class="mb-0 mt-2">Watch statistics (30 days)</h4></div>
@@ -601,6 +820,9 @@ else
     private bool _requestActionBusy;
     private string? _requestActionError;
     private IndexerHealthSnapshot? _indexers;
+    private MissingSnapshot? _missing;
+    private bool _missingActionBusy;
+    private string? _missingActionError;
     private string _searchQuery = "";
     private string _lastQuery = "";
     private bool _searching;
@@ -662,6 +884,15 @@ else
             }));
         if (Hub.ProwlarrConfigured)
             tasks.Add(AssignAsync(Hub.GetIndexerHealthAsync(), v => _indexers = v));
+        if (Hub.MissingConfigured)
+            tasks.Add(AssignAsync(Hub.GetMissingAsync(), v =>
+            {
+                _missing = v;
+                // Closing a collection gap adds to Radarr, so that card needs the
+                // same root folder / quality profile pickers the search results use.
+                if (v.Collections.Count > 0)
+                    _ = EnsureArrTargetsAsync(["Radarr"]);
+            }));
         return Task.WhenAll(tasks);
     }
 
@@ -791,19 +1022,19 @@ else
 
     // Root folders and quality profiles are only needed once an Arr actually
     // returns something addable, so they are fetched after the search, not before.
-    private async Task LoadArrTargetsAsync()
+    private Task LoadArrTargetsAsync() =>
+        _search is null
+            ? Task.CompletedTask
+            : EnsureArrTargetsAsync(_search.Results.Select(r => r.Source).Where(s => s is "Radarr" or "Sonarr"));
+
+    private async Task EnsureArrTargetsAsync(IEnumerable<string> sources)
     {
-        if (_search is null)
+        var wanted = sources.Distinct().Where(s => !_arr.ContainsKey(s)).ToList();
+        if (wanted.Count == 0)
             return;
-        var sources = _search.Results
-            .Select(r => r.Source)
-            .Where(s => s is "Radarr" or "Sonarr")
-            .Distinct()
-            .Where(s => !_arr.ContainsKey(s))
-            .ToList();
-        foreach (var source in sources)
+        foreach (var source in wanted)
             _arr[source] = new ArrTargetChoice();
-        await Task.WhenAll(sources.Select(async source =>
+        await Task.WhenAll(wanted.Select(async source =>
         {
             var targets = await Hub.GetArrTargetsAsync(source);
             var choice = _arr[source];
@@ -814,8 +1045,10 @@ else
         }));
     }
 
-    private bool CanAdd(SearchResult result) =>
-        _arr.TryGetValue(result.Source, out var choice) && choice.Root.Length > 0 && choice.ProfileId > 0;
+    private bool CanAdd(SearchResult result) => CanAdd(result.Source);
+
+    private bool CanAdd(string source) =>
+        _arr.TryGetValue(source, out var choice) && choice.Root.Length > 0 && choice.ProfileId > 0;
 
     private async Task AddToArrAsync(SearchResult result)
     {
@@ -855,6 +1088,40 @@ else
         finally
         {
             _searchActionBusy = false;
+        }
+    }
+
+    private Task SearchMissingMovieAsync(MissingMovie movie) =>
+        RunMissingActionAsync(movie.Key, "Radarr", () => Hub.SearchForMissingAsync("Radarr", movie.MovieId));
+
+    private Task SearchMissingSeasonAsync(MissingSeason season) =>
+        RunMissingActionAsync(season.Key, "Sonarr", () => Hub.SearchForMissingAsync("Sonarr", season.SeriesId, season.SeasonNumber));
+
+    private Task AddCollectionMovieAsync(CollectionMovie film)
+    {
+        var choice = _arr["Radarr"];
+        return RunMissingActionAsync(film.Key, "Radarr", () => Hub.AddMovieByTmdbAsync(film.TmdbId, choice.Root, choice.ProfileId));
+    }
+
+    // The three gap cards act the same way: run it, mark the row done, refresh the
+    // queue so whatever the Arr grabs shows up without waiting for the next tick.
+    private async Task RunMissingActionAsync(string key, string source, Func<Task> action)
+    {
+        _missingActionBusy = true;
+        _missingActionError = null;
+        try
+        {
+            await action();
+            _actedOn.Add(key);
+            _queue = await Hub.GetQueueAsync();
+        }
+        catch (Exception ex)
+        {
+            _missingActionError = $"{source}: {ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            _missingActionBusy = false;
         }
     }
 

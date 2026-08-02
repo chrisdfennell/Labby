@@ -89,6 +89,75 @@ public sealed record UpcomingItem
     public bool HasFile { get; init; }
 }
 
+/// <summary>
+/// What the library wants but does not have: monitored movies with no file,
+/// aired episodes with no file (grouped by season), and movie collections that
+/// have been started but not finished.
+/// </summary>
+public sealed record MissingSnapshot
+{
+    public IReadOnlyList<MissingMovie> Movies { get; init; } = [];
+    /// <summary>Radarr's full missing count, which can exceed the page shown.</summary>
+    public int TotalMissingMovies { get; init; }
+    public IReadOnlyList<MissingSeason> Seasons { get; init; } = [];
+    /// <summary>Sonarr's full missing-episode count, which can exceed the page shown.</summary>
+    public int TotalMissingEpisodes { get; init; }
+    public IReadOnlyList<CollectionGap> Collections { get; init; } = [];
+    public string? SonarrError { get; init; }
+    public string? RadarrError { get; init; }
+    /// <summary>Collections are a separate Radarr call, so they fail on their own.</summary>
+    public string? CollectionsError { get; init; }
+}
+
+/// <summary>A movie Radarr monitors but has no file for.</summary>
+public sealed record MissingMovie
+{
+    /// <summary>Radarr movie id, for triggering a search.</summary>
+    public long MovieId { get; init; }
+    public string Title { get; init; } = "";
+    public int? Year { get; init; }
+    /// <summary>Earliest known release date across cinema/digital/physical.</summary>
+    public DateTimeOffset? ReleasedAt { get; init; }
+    /// <summary>Radarr considers it out and grabbable; false means it is still awaited.</summary>
+    public bool IsAvailable { get; init; }
+
+    public string Key => $"movie:{MovieId}";
+}
+
+/// <summary>One season with aired episodes Sonarr monitors but has no files for.</summary>
+public sealed record MissingSeason
+{
+    /// <summary>Sonarr series id, for triggering a season search.</summary>
+    public long SeriesId { get; init; }
+    public int SeasonNumber { get; init; }
+    public string Series { get; init; } = "";
+    public int EpisodeCount { get; init; }
+    /// <summary>Episode numbers, abbreviated for display: "E01, E02, E03 +4 more".</summary>
+    public string Episodes { get; init; } = "";
+    /// <summary>Air date of the most recent missing episode, for ordering.</summary>
+    public DateTimeOffset? NewestAirDate { get; init; }
+
+    public string Key => $"season:{SeriesId}:{SeasonNumber}";
+}
+
+/// <summary>A movie collection with some films in the library and some not.</summary>
+public sealed record CollectionGap
+{
+    public string Title { get; init; } = "";
+    /// <summary>How many films of the collection are already tracked by Radarr.</summary>
+    public int OwnedCount { get; init; }
+    public IReadOnlyList<CollectionMovie> Missing { get; init; } = [];
+}
+
+public sealed record CollectionMovie
+{
+    public long TmdbId { get; init; }
+    public string Title { get; init; } = "";
+    public int? Year { get; init; }
+
+    public string Key => $"tmdb:{TmdbId}";
+}
+
 /// <summary>Latest additions to the Plex libraries.</summary>
 public sealed record RecentlyAddedSnapshot
 {
