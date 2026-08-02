@@ -10,7 +10,7 @@ A Blazor Server web app for your home lab: service dashboard, QNAP NAS stats and
 | **Storage** (`/storage`) | NAS model/firmware/uptime, CPU/RAM, temperatures, volume usage bars with a "full in ≈N days" projection, 24h CPU/RAM/temperature charts, and per-disk SMART health |
 | **Files** (`/files`) | Browse QNAP shares, download/upload files, create folders, rename/move/delete, and generate signed 7-day share links that work without a login |
 | **Containers** (`/containers`) | Embedded [Kontainr](https://github.com/chrisdfennell/Kontainr) dashboard (full Docker management), plus a Container Station tab with per-container CPU/RAM, start/stop/restart, and a logs viewer (needs the docker.sock mount from the compose file) |
-| **Media** (`/media`) | Plex now-playing (via Tautulli), recently added (Plex), active downloads with speeds and pause/resume (qBittorrent + NZBGet), the Sonarr/Radarr download queue, add-download-by-link (magnet/NZB), stop-stream buttons, upcoming episodes/movies, pending Overseerr requests with approve/decline, and 30-day watch statistics (plays chart, top shows/movies/users) — auto-refreshing every 15s |
+| **Media** (`/media`) | Plex now-playing (via Tautulli), recently added (Plex), active downloads with speeds and pause/resume (qBittorrent + NZBGet), the Sonarr/Radarr download queue, add-download-by-link (magnet/NZB), stop-stream buttons, upcoming episodes/movies, pending Overseerr requests with approve/decline, search across Overseerr **and Radarr/Sonarr directly** (request via Overseerr, or add straight to an Arr with a chosen root folder and quality profile and search for it), and 30-day watch statistics (plays chart, top shows/movies/users) — auto-refreshing every 15s |
 | **Weather** (`/weather`) | Full weather station readout auto-refreshing every 60s, today's high/low/peak-gust/rain/UV/solar and sunrise/sunset tiles, an animated rain radar (RainViewer) centered on the station, and 24h/48h/7d history charts — temperature, wind (with direction arrows and "wind from" tooltips), humidity, barometer, rain, solar radiation, indoor vs outdoor — logged to SQLite every 5 minutes |
 | **Uptime** (`/uptime`) | Status-page view of every dashboard service: uptime % (24h/7d), a 30-day daily bar strip, and an outage log with durations — history persisted to SQLite |
 | **Network** (`/network`) | Latency charts for pinged hosts (`Network:PingHosts`, 60s cadence, packet-loss %) and scheduled internet speed tests via bundled librespeed-cli (`Network:SpeedtestHours`, 0 = off; optional `MinDownloadMbps` slow-internet alert) |
@@ -83,6 +83,20 @@ Each entry becomes a tile with a health check (any HTTP response below 500 count
 
 `HealthUrl` is optional — use it when the probe should hit a different URL than the one the tile opens. Add `"Mac": "AA:BB:CC:DD:EE:FF"` to a service and its tile grows a ⚡ wake button whenever it's down (Wake-on-LAN broadcast — works for machines whose BIOS/NIC have WoL enabled).
 
+Probes run every 30s, and a service is only called DOWN (and alerted on) after `FailuresBeforeDown` failures **in a row** — 2 by default, so one dropped connection or timeout doesn't produce a DOWN/UP alert pair 30 seconds apart. Raise it globally, or per service for one flaky box:
+
+```jsonc
+"Dashboard": {
+  "FailuresBeforeDown": 2,
+  "Services": [
+    // an ESP32 miner's web server drops overlapping requests — give it more rope
+    { "Name": "NM Monitor", "Url": "http://192.168.1.34/", "Icon": "⛏️", "FailuresBeforeDown": 3 }
+  ]
+}
+```
+
+Each retained failure costs one poll interval of detection delay (2 → up to ~60s). Set it to `1` to alert on the very first bad probe. The sparkline and uptime % still count every failed probe, so suppressed blips remain visible even when no alert fires.
+
 Plain bookmarks (no health checks) can sit in a strip above the service tiles:
 
 ```jsonc
@@ -112,9 +126,9 @@ Each source is independent — configure the ones you run and their cards appear
 "Media": {
   "Plex":        { "Url": "http://192.168.1.50:32400", "ApiKey": "..." }, // recently added (ApiKey = X-Plex-Token)
   "Tautulli":    { "Url": "http://192.168.1.50:8181", "ApiKey": "..." },  // Plex now-playing
-  "Sonarr":      { "Url": "http://192.168.1.50:8989", "ApiKey": "..." },  // upcoming episodes
-  "Radarr":      { "Url": "http://192.168.1.50:7878", "ApiKey": "..." },  // upcoming movies
-  "Overseerr":   { "Url": "http://192.168.1.50:5055", "ApiKey": "..." },  // pending requests
+  "Sonarr":      { "Url": "http://192.168.1.50:8989", "ApiKey": "..." },  // upcoming episodes, queue, series search + add
+  "Radarr":      { "Url": "http://192.168.1.50:7878", "ApiKey": "..." },  // upcoming movies, queue, movie search + add
+  "Overseerr":   { "Url": "http://192.168.1.50:5055", "ApiKey": "..." },  // pending requests, search + request
   "Qbittorrent": { "Url": "http://192.168.1.50:8080", "Username": "admin", "Password": "" },
   "Nzbget":      { "Url": "http://192.168.1.50:6789", "Username": "nzbget", "Password": "" }
 }
@@ -208,6 +222,20 @@ A GitHub Actions workflow builds and pushes `fennch/labby` (and the kontainr pro
 docker compose -f docker-compose.hub.yml pull
 docker compose -f docker-compose.hub.yml up -d
 ```
+
+### Deploy on push (CI hook)
+
+To skip the manual pull, let the workflow tell the running Labby to update itself as soon as the new image is published. It runs exactly what Settings → **Updates** → *Update now* runs (a one-shot Watchtower), so there's no second update path to maintain.
+
+1. Generate a secret: `openssl rand -hex 32`.
+2. On the NAS, set `LABBY_DEPLOY_TOKEN` in `.env` (the compose files pass it through as `Updates__DeployToken`) and recreate the container. Settings → Updates then reads **CI deploy hook enabled**.
+3. In GitHub → Settings → Secrets → Actions, add:
+   - `LABBY_DEPLOY_URL` — Labby's base URL as reachable from GitHub's runners, e.g. `https://labby.example.org` (no trailing slash; the step appends `/api/deploy`).
+   - `LABBY_DEPLOY_TOKEN` — the same secret.
+
+With both set, every push to `main` builds, pushes, and then POSTs `/api/deploy`; Labby restarts on the new image about half a minute later. Leave either secret unset and the step prints "skipping" and passes, so forks and local-only deployments still get green builds.
+
+`POST /api/deploy` is anonymous by necessity — CI has no session — so the bearer token is the entire authorization. With no token configured the endpoint answers 404 and does nothing, which is the default. It only exposes "pull the image this repo just published and restart", but it is reachable by anyone who can reach Labby, so treat the token like a password and don't publish the URL. Bad token → `401`, no Docker socket → `503`, accepted → `202`.
 
 ### Restart and rebuild from Settings
 

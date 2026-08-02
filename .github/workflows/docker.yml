@@ -40,3 +40,22 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/labby-kontainr-proxy:latest
+
+      # Tells the running Labby to pull what we just pushed — the same self-update
+      # the Settings page runs. Skipped (not failed) when the secrets aren't set, so
+      # forks and anyone without a reachable deployment still get a green build.
+      - name: Deploy — trigger Labby self-update
+        env:
+          LABBY_DEPLOY_URL: ${{ secrets.LABBY_DEPLOY_URL }}
+          LABBY_DEPLOY_TOKEN: ${{ secrets.LABBY_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$LABBY_DEPLOY_URL" ] || [ -z "$LABBY_DEPLOY_TOKEN" ]; then
+            echo "LABBY_DEPLOY_URL/LABBY_DEPLOY_TOKEN not set — skipping deploy."
+            exit 0
+          fi
+          # Retry: the container is restarting itself, so a dropped connection is
+          # expected, but a genuinely unreachable host should fail the job loudly.
+          curl -fsS --max-time 60 --retry 3 --retry-delay 10 --retry-connrefused \
+            -X POST "$LABBY_DEPLOY_URL/api/deploy" \
+            -H "Authorization: Bearer $LABBY_DEPLOY_TOKEN"
+          echo   # the 202 body has no trailing newline

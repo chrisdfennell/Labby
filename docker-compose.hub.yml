@@ -22,6 +22,8 @@ services:
       TZ: ${TZ:-}
       Auth__Username: ${LABBY_AUTH_USERNAME:-labby}
       Auth__Password: ${LABBY_AUTH_PASSWORD:-}
+      # Shared secret for the CI deploy hook (POST /api/deploy). Empty leaves it off.
+      Updates__DeployToken: ${LABBY_DEPLOY_TOKEN:-}
       Alerts__WebhookUrl: ${LABBY_ALERT_WEBHOOK:-}
       Alerts__PushoverToken: ${LABBY_PUSHOVER_TOKEN:-}
       Alerts__PushoverUser: ${LABBY_PUSHOVER_USER:-}

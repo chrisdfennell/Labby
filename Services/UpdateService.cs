@@ -17,6 +17,13 @@ public sealed class UpdateService(DockerEngineClient docker, IHttpClientFactory 
     public string RunningVersion { get; } = Environment.GetEnvironmentVariable("LABBY_VERSION") ?? "dev";
     public bool CanSelfUpdate => docker.IsAvailable && RunningVersion != "dev";
 
+    /// <summary>
+    /// The last update this process kicked off, and what asked for it. Only ever set
+    /// by an update that has not restarted us yet — after the restart it is null again,
+    /// which is itself the signal that the update went through.
+    /// </summary>
+    public (DateTimeOffset At, string Source)? LastTrigger { get; private set; }
+
     public sealed record UpdateCheck(bool UpdateAvailable, string? LatestVersion, string? Error);
 
     public async Task<UpdateCheck> CheckAsync(CancellationToken ct = default)
@@ -60,9 +67,10 @@ public sealed class UpdateService(DockerEngineClient docker, IHttpClientFactory 
     }
 
     /// <summary>Starts the one-shot Watchtower update. Labby restarts moments later.</summary>
-    public async Task TriggerUpdateAsync(CancellationToken ct = default)
+    public async Task TriggerUpdateAsync(string source = "Settings page", CancellationToken ct = default)
     {
-        logger.LogInformation("Self-update requested — launching one-shot watchtower");
+        logger.LogInformation("Self-update requested by {Source} — launching one-shot watchtower", source);
+        LastTrigger = (DateTimeOffset.Now, source);
         await docker.RunOneShotAsync(
             WatchtowerImage,
             cmd: ["--run-once", "--cleanup", "labby"],

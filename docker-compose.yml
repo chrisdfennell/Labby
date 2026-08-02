@@ -27,6 +27,8 @@ services:
       # Setting a password turns on Labby's login screen.
       Auth__Username: ${LABBY_AUTH_USERNAME:-labby}
       Auth__Password: ${LABBY_AUTH_PASSWORD:-}
+      # Shared secret for the CI deploy hook (POST /api/deploy). Empty leaves it off.
+      Updates__DeployToken: ${LABBY_DEPLOY_TOKEN:-}
       # Webhook (ntfy topic URL, Discord, or Slack) for service down/recovery alerts.
       Alerts__WebhookUrl: ${LABBY_ALERT_WEBHOOK:-}
       # Pushover push notifications (set both to enable; works alongside the webhook).

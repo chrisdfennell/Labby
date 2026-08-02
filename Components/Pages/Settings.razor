@@ -8,6 +8,7 @@
 @inject SelfMaintenanceService Maintenance
 @inject DigestService Digest
 @inject IOptions<BackupOptions> BackupConfig
+@inject IOptions<UpdateOptions> UpdateConfig
 @inject IJSRuntime Js
 
 <PageTitle>Labby — Settings</PageTitle>
@@ -128,6 +129,23 @@
                         <span class="state-up small">✓ Up to date</span>
                     }
                 </div>
+                <p class="text-muted small mb-0 mt-2">
+                    @if (Updates.LastTrigger is { } trigger)
+                    {
+                        <span class="state-warn">⏳ Update started by @trigger.Source at @trigger.At.ToString("HH:mm:ss") — this container is on its way out.</span>
+                    }
+                    else if (UpdateConfig.Value.DeployHookEnabled)
+                    {
+                        <span>CI deploy hook <span class="state-up">enabled</span> — a push to <code>main</code> updates Labby once the image is published.</span>
+                    }
+                    else
+                    {
+                        <span>
+                            CI deploy hook off. Set <code>Updates__DeployToken</code> (env <code>LABBY_DEPLOY_TOKEN</code>) and the matching
+                            <code>LABBY_DEPLOY_URL</code>/<code>LABBY_DEPLOY_TOKEN</code> GitHub secrets to update on every push.
+                        </span>
+                    }
+                </p>
             </div>
         </div>
     </div>

@@ -21,6 +21,7 @@ builder.Services.Configure<OsintOptions>(builder.Configuration.GetSection(OsintO
 builder.Services.Configure<WishlistOptions>(builder.Configuration.GetSection(WishlistOptions.SectionName));
 builder.Services.Configure<GitOptions>(builder.Configuration.GetSection(GitOptions.SectionName));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
+builder.Services.Configure<UpdateOptions>(builder.Configuration.GetSection(UpdateOptions.SectionName));
 builder.Services.Configure<HistoryOptions>(builder.Configuration.GetSection(HistoryOptions.SectionName));
 builder.Services.Configure<AlertOptions>(builder.Configuration.GetSection(AlertOptions.SectionName));
 builder.Services.Configure<MediaOptions>(builder.Configuration.GetSection(MediaOptions.SectionName));
@@ -181,6 +182,44 @@ var statusSummary = app.MapGet("/api/status/summary", (ServiceHealthMonitor heal
     Results.Json(new { down = health.Snapshot.Count(s => s.IsUp == false) }));
 if (authEnabled)
     statusSummary.RequireAuthorization();
+
+// CI deploy hook: runs the same self-update as the Settings page, so a push that
+// publishes a new :latest can land on the NAS without anyone clicking "Update now".
+// CI carries no session, so the bearer token IS the authorization — and with no
+// token configured the endpoint doesn't exist at all.
+app.MapPost("/api/deploy", async (HttpContext context, UpdateService updates,
+    IOptions<UpdateOptions> updateOptions, ILoggerFactory loggerFactory, CancellationToken ct) =>
+{
+    var logger = loggerFactory.CreateLogger("Labby.Deploy");
+    // Every reply below carries a body on purpose: a bodyless 401/404 gets re-executed
+    // by UseStatusCodePagesWithReExecute into the (authenticated) error page, which
+    // answers 302 to /login — and a redirect reads as success to `curl -f`, so a wrong
+    // token would show up as a green deploy.
+    if (updateOptions.Value.DeployToken is not { Length: > 0 } expected)
+        return Results.Problem("The deploy hook is not enabled here (set Updates__DeployToken).", statusCode: 404);
+
+    var header = context.Request.Headers.Authorization.ToString();
+    var presented = header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+        ? header["Bearer ".Length..]
+        : "";
+    // Compare digests, not the raw bytes: FixedTimeEquals needs equal lengths, and
+    // failing early on a length mismatch would leak the token's length.
+    if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(presented)),
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(expected))))
+    {
+        logger.LogWarning("Deploy hook rejected: bad token from {Remote}", context.Connection.RemoteIpAddress);
+        return Results.Problem("Invalid deploy token.", statusCode: 401);
+    }
+
+    if (!updates.CanSelfUpdate)
+        return Results.Problem("Self-update needs the Docker socket mount and a built image.", statusCode: 503);
+
+    logger.LogInformation("Deploy hook accepted from {Remote} — updating", context.Connection.RemoteIpAddress);
+    await updates.TriggerUpdateAsync(source: "CI deploy hook", ct);
+    // Watchtower pulls and recreates a few seconds from now, so this reply still gets out.
+    return Results.Accepted(value: new { status = "updating", from = updates.RunningVersion });
+}).AllowAnonymous();
 
 app.MapPost("/logout", async (HttpContext context, IAntiforgery antiforgery) =>
 {
