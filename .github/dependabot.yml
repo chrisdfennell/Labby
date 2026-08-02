@@ -1,0 +1,39 @@
+# Keeps the three dependency surfaces current: NuGet packages, the base images in
+# both Dockerfiles, and the workflow's actions.
+#
+# Minor and patch updates are grouped into one PR per ecosystem, so a quiet week is
+# a single review rather than six. Majors arrive on their own because they are the
+# ones worth reading. Everything lands on Monday to keep the noise predictable.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      nuget:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    # Root Dockerfile (dotnet sdk + aspnet) and deploy/Dockerfile.kontainr-proxy
+    # (nginx) — Dependabot matches any filename containing "dockerfile".
+    directories: ["/", "/deploy"]
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      base-images:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    # Action majors are routine (the Node 20 deprecation is one), so group them too.
+    groups:
+      actions:
+        patterns: ["*"]

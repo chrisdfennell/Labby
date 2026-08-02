@@ -3,6 +3,10 @@ name: Build and push Docker images
 on:
   push:
     branches: [main]
+  # Pull requests build but never publish or deploy — this is what gives
+  # Dependabot's updates a compile check before anyone merges them.
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -14,6 +18,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -22,13 +27,16 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64
           build-args: |
             LABBY_VERSION=${{ github.sha }}
+          # Dependabot PRs don't receive the repo secrets, so the owner falls back to
+          # a placeholder — without it the tag renders as "/labby:latest" and buildx
+          # rejects it even though nothing is being pushed.
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/labby:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/labby:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME || 'local' }}/labby:latest
+            ${{ secrets.DOCKERHUB_USERNAME || 'local' }}/labby:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -37,14 +45,15 @@ jobs:
         with:
           context: ./deploy
           file: ./deploy/Dockerfile.kontainr-proxy
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/labby-kontainr-proxy:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME || 'local' }}/labby-kontainr-proxy:latest
 
       # Tells the running Labby to pull what we just pushed — the same self-update
       # the Settings page runs. Skipped (not failed) when the secrets aren't set, so
       # forks and anyone without a reachable deployment still get a green build.
       - name: Deploy — trigger Labby self-update
+        if: github.event_name != 'pull_request'
         env:
           LABBY_DEPLOY_URL: ${{ secrets.LABBY_DEPLOY_URL }}
           LABBY_DEPLOY_TOKEN: ${{ secrets.LABBY_DEPLOY_TOKEN }}
