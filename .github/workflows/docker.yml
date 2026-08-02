@@ -48,14 +48,40 @@ jobs:
         env:
           LABBY_DEPLOY_URL: ${{ secrets.LABBY_DEPLOY_URL }}
           LABBY_DEPLOY_TOKEN: ${{ secrets.LABBY_DEPLOY_TOKEN }}
+          # Only needed when Cloudflare Access (or similar) fronts Labby — see README.
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           if [ -z "$LABBY_DEPLOY_URL" ] || [ -z "$LABBY_DEPLOY_TOKEN" ]; then
             echo "LABBY_DEPLOY_URL/LABBY_DEPLOY_TOKEN not set — skipping deploy."
             exit 0
           fi
-          # Retry: the container is restarting itself, so a dropped connection is
-          # expected, but a genuinely unreachable host should fail the job loudly.
-          curl -fsS --max-time 60 --retry 3 --retry-delay 10 --retry-connrefused \
+
+          access=()
+          if [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
+            echo "Using a Cloudflare Access service token."
+            access=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID"
+                    -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET")
+          fi
+
+          # Read the status ourselves rather than leaning on `curl -f`: -f ignores
+          # 3xx, so an Access/login redirect in front of Labby would otherwise look
+          # like a successful deploy. Retries cover the container restarting itself.
+          code=$(curl -sS -o response.txt -w '%{http_code}' \
+            --max-time 60 --retry 3 --retry-delay 10 --retry-connrefused \
             -X POST "$LABBY_DEPLOY_URL/api/deploy" \
-            -H "Authorization: Bearer $LABBY_DEPLOY_TOKEN"
-          echo   # the 202 body has no trailing newline
+            -H "Authorization: Bearer $LABBY_DEPLOY_TOKEN" "${access[@]}")
+          echo "HTTP $code"
+          cat response.txt; echo
+
+          case "$code" in
+            2*) echo "Deploy accepted — Labby restarts on the new image shortly." ;;
+            3*) echo "::error::Redirected (HTTP $code) — something in front of Labby intercepted the request. If that is Cloudflare Access, add a service token (CF_ACCESS_CLIENT_ID/CF_ACCESS_CLIENT_SECRET secrets) or a bypass policy for /api/deploy."
+                exit 1 ;;
+            401) echo "::error::Rejected (401) — LABBY_DEPLOY_TOKEN does not match Updates__DeployToken on the host."
+                exit 1 ;;
+            404) echo "::error::Not enabled (404) — Updates__DeployToken is unset on the host, or the container wasn't recreated after setting it."
+                exit 1 ;;
+            *)  echo "::error::Deploy hook failed with HTTP $code."
+                exit 1 ;;
+          esac

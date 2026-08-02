@@ -237,6 +237,28 @@ With both set, every push to `main` builds, pushes, and then POSTs `/api/deploy`
 
 `POST /api/deploy` is anonymous by necessity — CI has no session — so the bearer token is the entire authorization. With no token configured the endpoint answers 404 and does nothing, which is the default. It only exposes "pull the image this repo just published and restart", but it is reachable by anyone who can reach Labby, so treat the token like a password and don't publish the URL. Bad token → `401`, no Docker socket → `503`, accepted → `202`.
 
+Check the whole path before wiring up secrets, from a machine **off** your LAN:
+
+```
+curl -i -X POST https://labby.example.org/api/deploy -H "Authorization: Bearer wrong"
+```
+
+`401` with a JSON body means everything between GitHub and Labby works. Anything else, read the `Location` header:
+
+| Response | Cause |
+|---|---|
+| `404` + JSON | `Updates__DeployToken` unset, or the container wasn't recreated after setting it |
+| `302` → `*.cloudflareaccess.com` | Cloudflare Access is in front — see below |
+| `302` → `/login` | reaching an older image that predates this endpoint |
+| timeout / refused | not publicly reachable at that hostname |
+
+#### Behind Cloudflare Access
+
+Access challenges GitHub's runners with a login redirect, which the deploy step reports as an error. Two ways through:
+
+- **Service token** (keeps Access enforcing). Zero Trust → Access → Service Auth → create a service token; on the Labby application add a policy with action *Service Auth* including that token. Put the two values in the `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` repo secrets and the workflow sends them automatically.
+- **Bypass policy** on just the hook. Create a second Access application for `labby.example.org/api/deploy` with a *Bypass* policy, leaving the rest of Labby protected. Simpler, and the endpoint still needs the bearer token — but it is then open to the internet, so pair it with a WAF rule if that matters.
+
 ### Restart and rebuild from Settings
 
 Settings → **Labby container** drives the container Labby itself runs in over the mounted `docker.sock`:
