@@ -8,7 +8,7 @@
 
 <div class="d-flex align-items-center flex-wrap gap-3 mb-4">
     <h1 class="mb-0">🎬 Media</h1>
-    @if (Hub.OverseerrConfigured)
+    @if (Hub.SearchConfigured)
     {
         <div class="d-flex gap-2 ms-auto media-search">
             <input class="form-control form-control-sm" placeholder="Search movies & shows…"
@@ -19,45 +19,88 @@
     }
 </div>
 
-@if (_searchResults is not null)
+@if (_search is not null)
 {
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between">
             <span>🔎 Results for "@_lastQuery"</span>
-            <button type="button" class="link-btn" @onclick="() => _searchResults = null">close</button>
+            <button type="button" class="link-btn" @onclick="() => _search = null">close</button>
         </div>
         <div class="card-body">
-            @if (_searchError is not null)
+            @foreach (var error in _search.Errors)
             {
-                <span class="text-danger small">@_searchError</span>
+                <div class="text-danger small">@error</div>
             }
-            else if (_searchResults.Count == 0)
+            @if (_searchActionError is not null)
+            {
+                <div class="text-danger small">@_searchActionError</div>
+            }
+            @if (_search.Results.Count == 0 && _search.Errors.Count == 0)
             {
                 <span class="text-muted">Nothing found.</span>
             }
-            @foreach (var r in _searchResults)
+            @foreach (var group in _search.Results.GroupBy(r => r.Source).OrderBy(g => SourceOrder(g.Key)))
             {
-                <div class="media-upcoming d-flex justify-content-between align-items-center gap-2">
-                    <span class="text-truncate">
-                        <span class="fw-semibold">@r.Title</span>
-                        <span class="text-muted">@(r.Year is { } y ? $"({y})" : "")</span>
-                        <span class="badge bg-secondary ms-1">@r.Type</span>
-                    </span>
-                    <span class="text-nowrap">
-                        @if (_requested.Contains(r.TmdbId))
+                <div class="search-group">
+                    <div class="d-flex align-items-center flex-wrap gap-2 search-group-head">
+                        <span class="fw-semibold small">@SourceIcon(group.Key) @group.Key</span>
+                        @if (_arr.TryGetValue(group.Key, out var target))
                         {
-                            <span class="badge bg-success">requested ✓</span>
+                            @if (target.Targets is null)
+                            {
+                                <span class="text-muted small">loading folders…</span>
+                            }
+                            else if (target.Targets.Error is { } targetError)
+                            {
+                                <span class="text-danger small">@targetError</span>
+                            }
+                            else
+                            {
+                                <select class="form-select form-select-sm dl-add-target" aria-label="Root folder" @bind="target.Root">
+                                    @foreach (var folder in target.Targets.RootFolders)
+                                    {
+                                        <option value="@folder">@folder</option>
+                                    }
+                                </select>
+                                <select class="form-select form-select-sm dl-add-target" aria-label="Quality profile" @bind="target.ProfileId">
+                                    @foreach (var profile in target.Targets.QualityProfiles)
+                                    {
+                                        <option value="@profile.Id">@profile.Name</option>
+                                    }
+                                </select>
+                            }
                         }
-                        else if (r.Status is { } status)
-                        {
-                            <span class="badge bg-success">@status</span>
-                        }
-                        else
-                        {
-                            <button type="button" class="req-btn approve" disabled="@_requestActionBusy"
-                                    @onclick="() => RequestAsync(r)">+ request</button>
-                        }
-                    </span>
+                    </div>
+                    @foreach (var r in group)
+                    {
+                        <div class="media-upcoming d-flex justify-content-between align-items-center gap-2">
+                            <span class="text-truncate">
+                                <span class="fw-semibold">@r.Title</span>
+                                <span class="text-muted">@(r.Year is { } y ? $"({y})" : "")</span>
+                                <span class="badge bg-secondary ms-1">@r.Type</span>
+                            </span>
+                            <span class="text-nowrap">
+                                @if (_actedOn.Contains(r.Key))
+                                {
+                                    <span class="badge bg-success">@(r.Source == "Overseerr" ? "requested ✓" : "added ✓")</span>
+                                }
+                                else if (r.Status is { } status)
+                                {
+                                    <span class="badge bg-success">@status</span>
+                                }
+                                else if (r.Source == "Overseerr")
+                                {
+                                    <button type="button" class="req-btn approve" disabled="@_searchActionBusy"
+                                            @onclick="() => RequestAsync(r)">+ request</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="req-btn approve" title="Add to @r.Source, monitored, and search for it now"
+                                            disabled="@(_searchActionBusy || !CanAdd(r))" @onclick="() => AddToArrAsync(r)">+ add</button>
+                                }
+                            </span>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -561,9 +604,13 @@ else
     private string _searchQuery = "";
     private string _lastQuery = "";
     private bool _searching;
-    private string? _searchError;
-    private IReadOnlyList<SearchResult>? _searchResults;
-    private readonly HashSet<long> _requested = [];
+    private SearchSnapshot? _search;
+    private bool _searchActionBusy;
+    private string? _searchActionError;
+    /// <summary>Keys of results already requested/added this visit, so the row stops offering it.</summary>
+    private readonly HashSet<string> _actedOn = [];
+    /// <summary>Where an "+ add" lands, per Arr. Loaded lazily when a search returns its hits.</summary>
+    private readonly Dictionary<string, ArrTargetChoice> _arr = new();
     private string? _confirmKill;
     private string? _killError;
     private string _addLink = "";
@@ -725,40 +772,102 @@ else
     private async Task SearchAsync()
     {
         _searching = true;
-        _searchError = null;
+        _searchActionError = null;
         _lastQuery = _searchQuery.Trim();
         try
         {
-            _searchResults = await Hub.SearchMediaAsync(_lastQuery);
+            _search = await Hub.SearchAsync(_lastQuery);
         }
         catch (Exception ex)
         {
-            _searchResults = [];
-            _searchError = ex.GetBaseException().Message;
+            _search = new SearchSnapshot { Errors = [ex.GetBaseException().Message] };
         }
         finally
         {
             _searching = false;
         }
+        await LoadArrTargetsAsync();
+    }
+
+    // Root folders and quality profiles are only needed once an Arr actually
+    // returns something addable, so they are fetched after the search, not before.
+    private async Task LoadArrTargetsAsync()
+    {
+        if (_search is null)
+            return;
+        var sources = _search.Results
+            .Select(r => r.Source)
+            .Where(s => s is "Radarr" or "Sonarr")
+            .Distinct()
+            .Where(s => !_arr.ContainsKey(s))
+            .ToList();
+        foreach (var source in sources)
+            _arr[source] = new ArrTargetChoice();
+        await Task.WhenAll(sources.Select(async source =>
+        {
+            var targets = await Hub.GetArrTargetsAsync(source);
+            var choice = _arr[source];
+            choice.Targets = targets;
+            choice.Root = targets.RootFolders.FirstOrDefault() ?? "";
+            choice.ProfileId = targets.QualityProfiles.FirstOrDefault()?.Id ?? 0;
+            await InvokeAsync(StateHasChanged);
+        }));
+    }
+
+    private bool CanAdd(SearchResult result) =>
+        _arr.TryGetValue(result.Source, out var choice) && choice.Root.Length > 0 && choice.ProfileId > 0;
+
+    private async Task AddToArrAsync(SearchResult result)
+    {
+        _searchActionBusy = true;
+        _searchActionError = null;
+        try
+        {
+            var choice = _arr[result.Source];
+            await Hub.AddToArrAsync(result, choice.Root, choice.ProfileId);
+            _actedOn.Add(result.Key);
+            _queue = await Hub.GetQueueAsync();
+        }
+        catch (Exception ex)
+        {
+            _searchActionError = $"{result.Source}: {ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            _searchActionBusy = false;
+        }
     }
 
     private async Task RequestAsync(SearchResult result)
     {
-        _requestActionBusy = true;
+        _searchActionBusy = true;
+        _searchActionError = null;
         try
         {
-            await Hub.SubmitRequestAsync(result.TmdbId, result.Type);
-            _requested.Add(result.TmdbId);
+            await Hub.SubmitRequestAsync(result.ExternalId, result.Type);
+            _actedOn.Add(result.Key);
             _requests = await Hub.GetRequestsAsync();
         }
         catch (Exception ex)
         {
-            _searchError = ex.GetBaseException().Message;
+            _searchActionError = ex.GetBaseException().Message;
         }
         finally
         {
-            _requestActionBusy = false;
+            _searchActionBusy = false;
         }
+    }
+
+    private static int SourceOrder(string source) => source switch { "Overseerr" => 0, "Radarr" => 1, _ => 2 };
+
+    private static string SourceIcon(string source) => source switch { "Overseerr" => "🎟️", "Radarr" => "🎞️", _ => "📺" };
+
+    /// <summary>The root folder and quality profile an "+ add" from one Arr will use.</summary>
+    private sealed class ArrTargetChoice
+    {
+        public ArrTargets? Targets;
+        public string Root = "";
+        public int ProfileId;
     }
 
     private async Task ResolveRequestAsync(MediaRequest request, bool approve)

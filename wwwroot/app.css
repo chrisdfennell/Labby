@@ -913,6 +913,20 @@ html.kiosk article.content {
     margin-top: 0.35rem;
 }
 
+.search-group + .search-group {
+    margin-top: 0.75rem;
+    border-top: 1px solid var(--lab-border);
+}
+
+.search-group-head {
+    padding: 0.35rem 0 0.15rem;
+    color: var(--lab-muted);
+}
+
+    .search-group-head select {
+        max-width: 12rem;
+    }
+
 .media-upcoming {
     padding: 0.35rem 0;
 }

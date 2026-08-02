@@ -17,6 +17,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
 
     private static readonly TimeSpan LiveTtl = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan CalendarTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan TargetsTtl = TimeSpan.FromMinutes(30);
 
     private readonly MediaOptions _options = options.Value;
     private readonly Cached<NowPlayingSnapshot> _nowPlaying = new();
@@ -27,6 +28,8 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     private readonly Cached<RecentlyAddedSnapshot> _recent = new();
     private readonly Cached<QueueSnapshot> _queue = new();
     private readonly Cached<WatchStatsSnapshot> _watchStats = new();
+    private readonly Cached<ArrTargets> _radarrTargets = new();
+    private readonly Cached<ArrTargets> _sonarrTargets = new();
     private readonly ConcurrentDictionary<string, string> _titleCache = new();
     private string? _qbitSid;
 
@@ -38,6 +41,9 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     public bool PlexConfigured => _options.Plex.IsConfigured;
     public bool ProwlarrConfigured => _options.Prowlarr.IsConfigured;
     public bool DownloadsConfigured => _options.Qbittorrent.IsConfigured || _options.Nzbget.IsConfigured;
+
+    /// <summary>The search box appears whenever something can answer it.</summary>
+    public bool SearchConfigured => OverseerrConfigured || SonarrConfigured || RadarrConfigured;
 
     public Task<NowPlayingSnapshot> GetNowPlayingAsync(CancellationToken ct = default) =>
         GetCachedAsync(_nowPlaying, LiveTtl, FetchNowPlayingAsync, ct);
@@ -130,8 +136,45 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
         _downloads.At = DateTimeOffset.MinValue;
     }
 
-    /// <summary>Searches Overseerr/Seerr for movies and shows.</summary>
-    public async Task<IReadOnlyList<SearchResult>> SearchMediaAsync(string query, CancellationToken ct = default)
+    /// <summary>
+    /// Searches every configured discovery source at once: Overseerr (which raises a
+    /// request) plus Sonarr and Radarr directly (which add straight to the library).
+    /// Sources fail independently — one being down still shows the others' hits.
+    /// </summary>
+    public async Task<SearchSnapshot> SearchAsync(string query, CancellationToken ct = default)
+    {
+        // Kick all three off before awaiting any, so the slowest one sets the pace.
+        var searches = new (string Source, Task<List<SearchResult>>? Task)[]
+        {
+            ("Overseerr", _options.Overseerr.IsConfigured ? SearchOverseerrAsync(query, ct) : null),
+            ("Radarr", _options.Radarr.IsConfigured ? SearchRadarrAsync(query, ct) : null),
+            ("Sonarr", _options.Sonarr.IsConfigured ? SearchSonarrAsync(query, ct) : null),
+        };
+
+        var results = new List<SearchResult>();
+        var errors = new List<string>();
+        foreach (var (source, task) in searches)
+        {
+            if (task is null)
+                continue;
+            try
+            {
+                results.AddRange(await task);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "{Source} search failed", source);
+                errors.Add($"{source}: {Describe(ex)}");
+            }
+        }
+        return new SearchSnapshot { Results = results, Errors = errors };
+    }
+
+    private async Task<List<SearchResult>> SearchOverseerrAsync(string query, CancellationToken ct)
     {
         using var doc = await GetJsonAsync(
             $"{_options.Overseerr.Url.TrimEnd('/')}/api/v1/search?page=1&query={Uri.EscapeDataString(query)}",
@@ -146,14 +189,184 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
             var status = r.TryGetProperty("mediaInfo", out var info) ? Num(info, "status") : null;
             results.Add(new SearchResult
             {
-                TmdbId = (long)(Num(r, "id") ?? 0),
+                ExternalId = (long)(Num(r, "id") ?? 0),
                 Type = type,
                 Title = type == "movie" ? Str(r, "title") : Str(r, "name"),
                 Year = date.Length >= 4 && int.TryParse(date[..4], out var y) ? y : null,
                 Status = status switch { 2 => "pending", 3 => "requested", 4 => "partial", 5 => "available", _ => null },
+                Source = "Overseerr",
             });
         }
         return results.Take(12).ToList();
+    }
+
+    // Radarr's lookup hits TMDB and returns full movie objects — the same shape
+    // POST /movie wants back, so the raw text rides along as the add payload.
+    private async Task<List<SearchResult>> SearchRadarrAsync(string query, CancellationToken ct)
+    {
+        using var doc = await GetJsonAsync(
+            $"{_options.Radarr.Url.TrimEnd('/')}/api/v3/movie/lookup?term={Uri.EscapeDataString(query)}",
+            ct, apiKey: _options.Radarr.ApiKey);
+        var results = new List<SearchResult>();
+        foreach (var m in doc.RootElement.EnumerateArray().Take(8))
+        {
+            // A non-zero id means Radarr already tracks it; hasFile means it is downloaded.
+            var inLibrary = (Num(m, "id") ?? 0) > 0;
+            results.Add(new SearchResult
+            {
+                ExternalId = (long)(Num(m, "tmdbId") ?? 0),
+                Type = "movie",
+                Title = Str(m, "title"),
+                Year = Num(m, "year") is { } y and > 0 ? (int)y : null,
+                Source = "Radarr",
+                Payload = m.GetRawText(),
+                InLibrary = inLibrary,
+                Status = !inLibrary ? null
+                    : m.TryGetProperty("hasFile", out var hf) && hf.ValueKind == JsonValueKind.True ? "downloaded"
+                    : "in library",
+            });
+        }
+        return results;
+    }
+
+    private async Task<List<SearchResult>> SearchSonarrAsync(string query, CancellationToken ct)
+    {
+        using var doc = await GetJsonAsync(
+            $"{_options.Sonarr.Url.TrimEnd('/')}/api/v3/series/lookup?term={Uri.EscapeDataString(query)}",
+            ct, apiKey: _options.Sonarr.ApiKey);
+        var results = new List<SearchResult>();
+        foreach (var s in doc.RootElement.EnumerateArray().Take(8))
+        {
+            var inLibrary = (Num(s, "id") ?? 0) > 0;
+            var onDisk = s.TryGetProperty("statistics", out var stats) ? Num(stats, "episodeFileCount") ?? 0 : 0;
+            results.Add(new SearchResult
+            {
+                ExternalId = (long)(Num(s, "tvdbId") ?? 0),
+                Type = "tv",
+                Title = Str(s, "title"),
+                Year = Num(s, "year") is { } y and > 0 ? (int)y : null,
+                Source = "Sonarr",
+                Payload = s.GetRawText(),
+                InLibrary = inLibrary,
+                Status = !inLibrary ? null : onDisk > 0 ? $"{onDisk:0} episodes" : "in library",
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Root folders and quality profiles offered by one Arr, for the add form.
+    /// Both change rarely, so they are cached for half an hour.
+    /// </summary>
+    public Task<ArrTargets> GetArrTargetsAsync(string source, CancellationToken ct = default) =>
+        GetCachedAsync(source == "Radarr" ? _radarrTargets : _sonarrTargets, TargetsTtl,
+            token => FetchArrTargetsAsync(source, token), ct);
+
+    private async Task<ArrTargets> FetchArrTargetsAsync(string source, CancellationToken ct)
+    {
+        var (baseUrl, apiKey) = ArrEndpoint(source);
+        try
+        {
+            using var folders = await GetJsonAsync($"{baseUrl}/api/v3/rootfolder", ct, apiKey);
+            using var profiles = await GetJsonAsync($"{baseUrl}/api/v3/qualityprofile", ct, apiKey);
+            return new ArrTargets
+            {
+                RootFolders = folders.RootElement.EnumerateArray()
+                    .Select(f => Str(f, "path"))
+                    .Where(p => p.Length > 0)
+                    .ToList(),
+                QualityProfiles = profiles.RootElement.EnumerateArray()
+                    .Select(p => new ArrProfile((int)(Num(p, "id") ?? 0), Str(p, "name")))
+                    .Where(p => p.Id > 0)
+                    .ToList(),
+            };
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "{Source} targets fetch failed", source);
+            return new ArrTargets { Error = Describe(ex) };
+        }
+    }
+
+    /// <summary>
+    /// Adds a Sonarr/Radarr search hit to that Arr's library, monitored, and kicks
+    /// off a search for it. The lookup object is posted back verbatim apart from the
+    /// fields the add needs, which is what the Arr UIs themselves do.
+    /// </summary>
+    public async Task AddToArrAsync(SearchResult result, string rootFolderPath, int qualityProfileId, CancellationToken ct = default)
+    {
+        if (result.Payload is not { Length: > 0 } payload)
+            throw new InvalidOperationException($"{result.Source} did not return an addable record.");
+        if (string.IsNullOrWhiteSpace(rootFolderPath))
+            throw new InvalidOperationException("Pick a root folder first.");
+        if (qualityProfileId <= 0)
+            throw new InvalidOperationException("Pick a quality profile first.");
+
+        var body = System.Text.Json.Nodes.JsonNode.Parse(payload)?.AsObject()
+                   ?? throw new InvalidOperationException("Unreadable lookup record.");
+        body.Remove("id"); // lookup returns 0 for unknown titles; the Arr assigns the real one
+        body["qualityProfileId"] = qualityProfileId;
+        body["rootFolderPath"] = rootFolderPath;
+        body["monitored"] = true;
+        if (result.Source == "Radarr")
+        {
+            body["minimumAvailability"] = "released";
+            body["addOptions"] = new System.Text.Json.Nodes.JsonObject { ["searchForMovie"] = true };
+        }
+        else
+        {
+            body["seasonFolder"] = true;
+            body["languageProfileId"] = 1; // required by Sonarr v3, ignored by v4
+            body["addOptions"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["monitor"] = "all",
+                ["searchForMissingEpisodes"] = true,
+                ["searchForCutoffUnmetEpisodes"] = false,
+            };
+        }
+
+        var (baseUrl, apiKey) = ArrEndpoint(result.Source);
+        var http = httpFactory.CreateClient(HttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Post,
+            $"{baseUrl}/api/v3/{(result.Source == "Radarr" ? "movie" : "series")}")
+        {
+            Content = new StringContent(body.ToJsonString(), System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add("X-Api-Key", apiKey);
+        using var response = await http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ArrErrorAsync(response, ct));
+
+        _queue.At = DateTimeOffset.MinValue; // the search it triggers should show up promptly
+    }
+
+    private (string BaseUrl, string ApiKey) ArrEndpoint(string source) =>
+        source == "Radarr"
+            ? (_options.Radarr.Url.TrimEnd('/'), _options.Radarr.ApiKey)
+            : (_options.Sonarr.Url.TrimEnd('/'), _options.Sonarr.ApiKey);
+
+    // Arr rejections come back as [{ "errorMessage": "..." }] or { "message": "..." };
+    // the raw status code alone ("400 Bad Request") tells the user nothing.
+    private static async Task<string> ArrErrorAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            var messages = doc.RootElement.ValueKind == JsonValueKind.Array
+                ? doc.RootElement.EnumerateArray().Select(e => Str(e, "errorMessage"))
+                : [Str(doc.RootElement, "message")];
+            if (string.Join("; ", messages.Where(m => m.Length > 0)) is { Length: > 0 } detail)
+                return detail;
+        }
+        catch (Exception)
+        {
+            // fall through to the status line
+        }
+        return $"rejected the add ({(int)response.StatusCode} {response.ReasonPhrase}).";
     }
 
     /// <summary>Submits a new request (all seasons for TV).</summary>

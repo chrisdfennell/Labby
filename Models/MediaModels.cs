@@ -133,16 +133,47 @@ public sealed record WatchStatsSnapshot
 
 public sealed record TopEntry(string Name, long Plays);
 
-/// <summary>One Overseerr/Seerr search result.</summary>
+/// <summary>Search hits across every configured discovery source, with per-source failures.</summary>
+public sealed record SearchSnapshot
+{
+    public IReadOnlyList<SearchResult> Results { get; init; } = [];
+    /// <summary>Pre-formatted "Source: reason" lines for the sources that failed.</summary>
+    public IReadOnlyList<string> Errors { get; init; } = [];
+}
+
+/// <summary>One search result from Overseerr, Radarr, or Sonarr.</summary>
 public sealed record SearchResult
 {
-    public long TmdbId { get; init; }
+    /// <summary>TMDB id for Overseerr and Radarr hits; TVDB id for Sonarr hits.</summary>
+    public long ExternalId { get; init; }
     public string Type { get; init; } = "";
     public string Title { get; init; } = "";
     public int? Year { get; init; }
     /// <summary>Library status: null = not in library, otherwise "pending"/"processing"/"partial"/"available".</summary>
     public string? Status { get; init; }
+    /// <summary>"Overseerr" (request it), or "Radarr"/"Sonarr" (add it straight to the library).</summary>
+    public string Source { get; init; } = "Overseerr";
+    /// <summary>
+    /// Arr hits only: the raw lookup object. Adding POSTs it back with the chosen
+    /// root folder and quality profile, so no field the Arr cares about gets lost.
+    /// </summary>
+    public string? Payload { get; init; }
+    /// <summary>Arr hits only: already in that Arr's library.</summary>
+    public bool InLibrary { get; init; }
+
+    /// <summary>Stable identity for tracking which rows have been acted on.</summary>
+    public string Key => $"{Source}:{Type}:{ExternalId}";
 }
+
+/// <summary>Where a Sonarr/Radarr add can land: the root folders and quality profiles it offers.</summary>
+public sealed record ArrTargets
+{
+    public IReadOnlyList<string> RootFolders { get; init; } = [];
+    public IReadOnlyList<ArrProfile> QualityProfiles { get; init; } = [];
+    public string? Error { get; init; }
+}
+
+public sealed record ArrProfile(int Id, string Name);
 
 /// <summary>Prowlarr health messages (empty = all indexers healthy).</summary>
 public sealed record IndexerHealthSnapshot
