@@ -250,3 +250,90 @@ public sealed record IndexerHealthSnapshot
     public IReadOnlyList<(string Type, string Message)> Messages { get; init; } = [];
     public string? Error { get; init; }
 }
+
+/// <summary>ErsatzTV's channel lineup, what each channel is airing, and who is watching.</summary>
+public sealed record ErsatzTvSnapshot
+{
+    public IReadOnlyList<ErsatzTvChannel> Channels { get; init; } = [];
+
+    /// <summary>ErsatzTV's own version string, shown in the card header.</summary>
+    public string? Version { get; init; }
+
+    /// <summary>Set when the channel list itself could not be read — the card has nothing to show.</summary>
+    public string? Error { get; init; }
+
+    /// <summary>
+    /// Set when the guide or the session list could not be read. The lineup still
+    /// lists; it just has no now/next and cannot say what is being watched.
+    /// </summary>
+    public string? DetailError { get; init; }
+
+    public int StreamingCount => Channels.Count(c => c.IsStreaming);
+}
+
+public sealed record ErsatzTvChannel
+{
+    /// <summary>The dial number ("5", or "5.1"). ErsatzTV's session and playout routes key off this, not the id.</summary>
+    public string Number { get; init; } = "";
+
+    public string Name { get; init; } = "";
+    public string StreamingMode { get; init; } = "";
+
+    /// <summary>On air right now per the guide; null when the guide is unreadable or the channel has run dry.</summary>
+    public ErsatzTvProgramme? Now { get; init; }
+    public ErsatzTvProgramme? Next { get; init; }
+
+    /// <summary>ErsatzTV is transcoding this channel, so somebody has it open.</summary>
+    public bool IsStreaming { get; init; }
+
+    /// <summary>The HLS session's state ("active", "idle") when there is one.</summary>
+    public string? SessionState { get; init; }
+}
+
+/// <summary>One entry from ErsatzTV's XMLTV guide.</summary>
+public sealed record ErsatzTvProgramme
+{
+    public string Title { get; init; } = "";
+
+    /// <summary>Episode title for a series, blank for a movie.</summary>
+    public string SubTitle { get; init; } = "";
+
+    /// <summary>On-screen episode number ("S04E24") when the guide carries one.</summary>
+    public string Episode { get; init; } = "";
+
+    public DateTimeOffset Start { get; init; }
+    public DateTimeOffset Stop { get; init; }
+
+    /// <summary>
+    /// How far into the programme it is right now. Read at render time rather than
+    /// baked into the snapshot, so the bar keeps creeping between fetches.
+    /// </summary>
+    public double ProgressPercent
+    {
+        get
+        {
+            var total = (Stop - Start).TotalSeconds;
+            return total <= 0 ? 0 : Math.Clamp((DateTimeOffset.Now - Start).TotalSeconds / total * 100, 0, 100);
+        }
+    }
+
+    public TimeSpan Remaining
+    {
+        get
+        {
+            var left = Stop - DateTimeOffset.Now;
+            return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+        }
+    }
+
+    /// <summary>
+    /// "Title Episode · Sub-title", skipping whichever parts the guide omitted. An
+    /// ErsatzTV channel is often one show on repeat, so passing the channel name as
+    /// <paramref name="omitTitle"/> drops a title that would just say it twice.
+    /// </summary>
+    public string Describe(string? omitTitle = null)
+    {
+        var lead = string.Equals(Title, omitTitle, StringComparison.OrdinalIgnoreCase) ? Episode : $"{Title} {Episode}".Trim();
+        return string.Join(" · ", new[] { lead, SubTitle }.Where(p => p.Length > 0));
+    }
+}

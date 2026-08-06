@@ -58,6 +58,7 @@ services:
       Media__Radarr__ApiKey: ${RADARR_API_KEY:-}
       Media__Overseerr__Url: ${OVERSEERR_BASE_URL:-}
       Media__Overseerr__ApiKey: ${OVERSEERR_API_KEY:-}
+      Media__ErsatzTv__Url: ${ERSATZTV_BASE_URL:-}
       Media__Qbittorrent__Url: ${QBITTORRENT_BASE_URL:-}
       Media__Qbittorrent__Username: ${QBITTORRENT_USERNAME:-}
       Media__Qbittorrent__Password: ${QBITTORRENT_PASSWORD:-}

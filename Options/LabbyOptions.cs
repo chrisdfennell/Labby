@@ -119,12 +119,15 @@ public sealed class MediaOptions
     /// <summary>Direct Plex access for "recently added"; ApiKey holds the X-Plex-Token.</summary>
     public ApiEndpoint Plex { get; set; } = new();
     public ApiEndpoint Prowlarr { get; set; } = new();
+    /// <summary>ErsatzTV's channel lineup and guide. Its API takes no key, so only a URL is needed.</summary>
+    public OpenEndpoint ErsatzTv { get; set; } = new();
     public CredentialEndpoint Qbittorrent { get; set; } = new();
     public CredentialEndpoint Nzbget { get; set; } = new();
 
     public bool AnyConfigured =>
         Tautulli.IsConfigured || Sonarr.IsConfigured || Radarr.IsConfigured
-        || Overseerr.IsConfigured || Plex.IsConfigured || Qbittorrent.IsConfigured || Nzbget.IsConfigured;
+        || Overseerr.IsConfigured || Plex.IsConfigured || Qbittorrent.IsConfigured || Nzbget.IsConfigured
+        || ErsatzTv.IsConfigured;
 
     public sealed class ApiEndpoint
     {
@@ -138,6 +141,13 @@ public sealed class MediaOptions
         public string Url { get; set; } = "";
         public string Username { get; set; } = "";
         public string Password { get; set; } = "";
+        public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
+    }
+
+    /// <summary>A service whose API needs no credentials on the LAN.</summary>
+    public sealed class OpenEndpoint
+    {
+        public string Url { get; set; } = "";
         public bool IsConfigured => !string.IsNullOrWhiteSpace(Url);
     }
 }

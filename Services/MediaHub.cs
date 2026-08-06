@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Xml.Linq;
 using Labby.Models;
 using Labby.Options;
 using Microsoft.Extensions.Options;
@@ -35,6 +36,8 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     private readonly Cached<ArrTargets> _radarrTargets = new();
     private readonly Cached<ArrTargets> _sonarrTargets = new();
     private readonly Cached<MissingSnapshot> _missing = new();
+    private readonly Cached<ErsatzTvSnapshot> _ersatzTv = new();
+    private readonly Cached<Guide> _guide = new();
     private readonly ConcurrentDictionary<string, string> _titleCache = new();
     private string? _qbitSid;
 
@@ -45,6 +48,7 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
     public bool OverseerrConfigured => _options.Overseerr.IsConfigured;
     public bool PlexConfigured => _options.Plex.IsConfigured;
     public bool ProwlarrConfigured => _options.Prowlarr.IsConfigured;
+    public bool ErsatzTvConfigured => _options.ErsatzTv.IsConfigured;
     public bool DownloadsConfigured => _options.Qbittorrent.IsConfigured || _options.Nzbget.IsConfigured;
 
     /// <summary>The search box appears whenever something can answer it.</summary>
@@ -79,6 +83,9 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
 
     public Task<MissingSnapshot> GetMissingAsync(CancellationToken ct = default) =>
         GetCachedAsync(_missing, MissingTtl, FetchMissingAsync, ct);
+
+    public Task<ErsatzTvSnapshot> GetErsatzTvAsync(CancellationToken ct = default) =>
+        GetCachedAsync(_ersatzTv, LiveTtl, FetchErsatzTvAsync, ct);
 
     /// <summary>Stops a Plex stream via Tautulli.</summary>
     public async Task TerminateSessionAsync(string sessionKey, CancellationToken ct = default)
@@ -1405,6 +1412,216 @@ public sealed class MediaHub(IHttpClientFactory httpFactory, IOptions<MediaOptio
         {
             return $"tmdb:{tmdbId}";
         }
+    }
+
+    // ── ErsatzTV ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The channel lineup, joined to what each channel is airing and whether anyone
+    /// has it open. The lineup comes from the REST API; the schedule does not live
+    /// there at all, so now/next is read out of the XMLTV guide the same API serves.
+    /// </summary>
+    private async Task<ErsatzTvSnapshot> FetchErsatzTvAsync(CancellationToken ct)
+    {
+        var baseUrl = _options.ErsatzTv.Url.TrimEnd('/');
+
+        List<(string Number, string Name, string Mode)> lineup;
+        try
+        {
+            using var doc = await GetJsonAsync($"{baseUrl}/api/channels", ct);
+            lineup = doc.RootElement.EnumerateArray()
+                .Select(c => (Number: Str(c, "number"), Name: Str(c, "name"), Mode: Str(c, "streamingMode")))
+                .Where(c => c.Number.Length > 0)
+                .ToList();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "ErsatzTV channel fetch failed");
+            return new ErsatzTvSnapshot { Error = Describe(ex) };
+        }
+
+        var numbers = lineup.Select(c => c.Number).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Version and sessions are quick; the guide is a megabyte of XML and cached
+        // for minutes. All three are extras — losing one must not blank the lineup.
+        var versionTask = GetVersionAsync();
+        var sessionsTask = GetSessionsAsync();
+        var guideTask = GetCachedAsync(_guide, CalendarTtl, token => FetchGuideAsync(numbers, token), ct);
+
+        var (version, versionError) = await TryFetchAsync(versionTask, "ErsatzTV version", ct);
+        var (sessions, sessionsError) = await TryFetchAsync(sessionsTask, "ErsatzTV sessions", ct);
+        var guide = await guideTask;
+
+        var now = DateTimeOffset.Now;
+        var channels = lineup
+            .Select(c =>
+            {
+                var airings = guide.ByChannel.GetValueOrDefault(c.Number) ?? [];
+                var state = sessions is not null && sessions.TryGetValue(c.Number, out var s) ? s : null;
+                return new ErsatzTvChannel
+                {
+                    Number = c.Number,
+                    Name = c.Name,
+                    StreamingMode = c.Mode,
+                    Now = airings.FirstOrDefault(p => p.Start <= now && p.Stop > now),
+                    Next = airings.FirstOrDefault(p => p.Start > now),
+                    IsStreaming = state is not null,
+                    SessionState = state,
+                };
+            })
+            // Dial order, and ErsatzTV allows decimal numbers ("5.1") that sort wrong as text.
+            .OrderBy(c => double.TryParse(c.Number, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : double.MaxValue)
+            .ThenBy(c => c.Number, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new ErsatzTvSnapshot
+        {
+            Channels = channels,
+            Version = version,
+            DetailError = guide.Error ?? sessionsError ?? versionError,
+        };
+
+        async Task<string> GetVersionAsync()
+        {
+            using var doc = await GetJsonAsync($"{baseUrl}/api/version", ct);
+            return Str(doc.RootElement, "appVersion");
+        }
+
+        // Sessions exist per channel only while ErsatzTV is transcoding for a viewer,
+        // and only in HLS modes — MPEG-TS channels never appear here.
+        async Task<Dictionary<string, string>> GetSessionsAsync()
+        {
+            using var doc = await GetJsonAsync($"{baseUrl}/api/sessions", ct);
+            var open = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in doc.RootElement.EnumerateArray())
+            {
+                if (Str(s, "channelNumber") is { Length: > 0 } number)
+                    open[number] = Str(s, "state");
+            }
+            return open;
+        }
+    }
+
+    /// <summary>The parsed guide, kept whole so a failed parse is cached as an error rather than retried every poll.</summary>
+    private sealed record Guide(Dictionary<string, List<ErsatzTvProgramme>> ByChannel, string? Error = null);
+
+    /// <summary>
+    /// The programme schedule, per channel number, from ErsatzTV's XMLTV guide.
+    /// The guide's channel ids ("C5.1.150.ersatztv.org") cannot be split back into a
+    /// number once numbers contain dots, so each channel is matched through whichever
+    /// of its display-names is a number the API just reported. That mapping is cached
+    /// with the guide, so a channel added in the last few minutes shows no now/next
+    /// until the next guide fetch.
+    /// </summary>
+    private async Task<Guide> FetchGuideAsync(IReadOnlySet<string> channelNumbers, CancellationToken ct)
+    {
+        try
+        {
+            return new Guide(await ParseGuideAsync(channelNumbers, ct));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "ErsatzTV guide fetch failed");
+            return new Guide([], Describe(ex));
+        }
+    }
+
+    private async Task<Dictionary<string, List<ErsatzTvProgramme>>> ParseGuideAsync(
+        IReadOnlySet<string> channelNumbers, CancellationToken ct)
+    {
+        var http = httpFactory.CreateClient(HttpClientName);
+        using var response = await http.GetAsync($"{_options.ErsatzTv.Url.TrimEnd('/')}/iptv/xmltv.xml", ct);
+        response.EnsureSuccessStatusCode();
+        var guide = XDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+
+        var numberById = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var channel in guide.Root?.Elements("channel") ?? [])
+        {
+            if (channel.Attribute("id")?.Value is not { Length: > 0 } id)
+                continue;
+            var match = channel.Elements("display-name")
+                .Select(n => n.Value.Trim())
+                .FirstOrDefault(channelNumbers.Contains);
+            if (match is not null)
+                numberById[id] = match;
+        }
+
+        var byChannel = new Dictionary<string, List<ErsatzTvProgramme>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var programme in guide.Root?.Elements("programme") ?? [])
+        {
+            if (programme.Attribute("channel")?.Value is not { } id
+                || !numberById.TryGetValue(id, out var number)
+                || XmltvTime(programme.Attribute("start")?.Value) is not { } start
+                || XmltvTime(programme.Attribute("stop")?.Value) is not { } stop)
+                continue;
+            byChannel.TryAdd(number, []);
+            byChannel[number].Add(new ErsatzTvProgramme
+            {
+                Title = programme.Element("title")?.Value.Trim() ?? "",
+                SubTitle = programme.Element("sub-title")?.Value.Trim() ?? "",
+                Episode = programme.Elements("episode-num")
+                    .FirstOrDefault(e => e.Attribute("system")?.Value == "onscreen")?.Value.Trim() ?? "",
+                Start = start,
+                Stop = stop,
+            });
+        }
+
+        foreach (var airings in byChannel.Values)
+            airings.Sort((a, b) => a.Start.CompareTo(b.Start));
+        return byChannel;
+    }
+
+    // XMLTV stamps times as "20260806055636 -0400" — a plain local timestamp with the
+    // offset trailing as ±hhmm, which no standard DateTimeOffset format accepts.
+    private static DateTimeOffset? XmltvTime(string? value)
+    {
+        if (value is not { Length: >= 14 })
+            return null;
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (!DateTime.TryParseExact(parts[0], "yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var stamp))
+            return null;
+        if (parts.Length > 1 && parts[1] is { Length: 5 } zone
+            && int.TryParse(zone.AsSpan(1, 2), out var hours) && int.TryParse(zone.AsSpan(3, 2), out var minutes))
+        {
+            var offset = new TimeSpan(hours, minutes, 0);
+            return new DateTimeOffset(stamp, zone[0] == '-' ? -offset : offset).ToLocalTime();
+        }
+        // No offset given: XMLTV says treat it as the server's local time, which is ours too.
+        return new DateTimeOffset(stamp, TimeZoneInfo.Local.GetUtcOffset(stamp));
+    }
+
+    /// <summary>Stops the transcode session on one ErsatzTV channel — the fix for a wedged stream.</summary>
+    public async Task StopErsatzTvSessionAsync(string channelNumber, CancellationToken ct = default)
+    {
+        var http = httpFactory.CreateClient(HttpClientName);
+        using var response = await http.DeleteAsync(
+            $"{_options.ErsatzTv.Url.TrimEnd('/')}/api/session/{Uri.EscapeDataString(channelNumber)}", ct);
+        response.EnsureSuccessStatusCode();
+        _ersatzTv.At = DateTimeOffset.MinValue;
+    }
+
+    /// <summary>
+    /// Rebuilds a channel's playout from its schedule — what you reach for when a
+    /// channel has run dry or is airing something the schedule no longer says.
+    /// </summary>
+    public async Task ResetErsatzTvPlayoutAsync(string channelNumber, CancellationToken ct = default)
+    {
+        var http = httpFactory.CreateClient(HttpClientName);
+        using var response = await http.PostAsync(
+            $"{_options.ErsatzTv.Url.TrimEnd('/')}/api/channels/{Uri.EscapeDataString(channelNumber)}/playout/reset",
+            content: null, ct);
+        response.EnsureSuccessStatusCode();
+        _ersatzTv.At = DateTimeOffset.MinValue;
+        _guide.At = DateTimeOffset.MinValue; // the guide reports the playout it just rebuilt
     }
 
     // ── plumbing ─────────────────────────────────────────────────────────

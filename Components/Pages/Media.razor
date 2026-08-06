@@ -324,6 +324,99 @@ else
                 </div>
             </div>
         }
+        @if (Hub.ErsatzTvConfigured)
+        {
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between">
+                        <span>
+                            📡 ErsatzTV
+                            @(_ersatzTv?.Channels.Count is > 0 and var n ? $"— {n} channel{(n == 1 ? "" : "s")}" : "")
+                            @if (_ersatzTv?.StreamingCount is > 0 and var watching)
+                            {
+                                <span class="badge bg-success ms-1">@watching watching</span>
+                            }
+                        </span>
+                        @if (_ersatzTv?.Version is { Length: > 0 } version)
+                        {
+                            <span class="text-muted small">@version</span>
+                        }
+                    </div>
+                    <div class="card-body missing-list">
+                        @if (_ersatzTv is null)
+                        {
+                            <span class="text-muted">Loading…</span>
+                        }
+                        else if (_ersatzTv.Error is not null)
+                        {
+                            <span class="text-danger small">ErsatzTV: @_ersatzTv.Error</span>
+                        }
+                        else if (_ersatzTv.Channels.Count == 0)
+                        {
+                            <span class="text-muted">No channels configured yet.</span>
+                        }
+                        else
+                        {
+                            @if (_ersatzTv.DetailError is { } detailError)
+                            {
+                                <div class="state-warn small">⚠ Guide unavailable: @detailError</div>
+                            }
+                            @if (_ersatzTvActionError is not null)
+                            {
+                                <div class="text-danger small">@_ersatzTvActionError</div>
+                            }
+                            @foreach (var channel in _ersatzTv.Channels)
+                            {
+                                <div class="media-session">
+                                    <div class="d-flex justify-content-between align-items-baseline gap-2">
+                                        <span class="text-truncate">
+                                            <span class="badge bg-secondary">@channel.Number</span>
+                                            <span class="fw-semibold">@(channel.IsStreaming ? "▶ " : "")@channel.Name</span>
+                                        </span>
+                                        <span class="text-nowrap">
+                                            @if (channel.IsStreaming)
+                                            {
+                                                <button type="button" class="req-btn decline" title="Stop the transcode for this channel"
+                                                        disabled="@_ersatzTvActionBusy" @onclick="() => StopErsatzTvSessionAsync(channel)">✗ stop</button>
+                                            }
+                                            @if (_confirmPlayoutReset == channel.Number)
+                                            {
+                                                <button type="button" class="req-btn decline" disabled="@_ersatzTvActionBusy"
+                                                        @onclick="() => ResetPlayoutAsync(channel)">confirm: rebuild playout</button>
+                                            }
+                                            else
+                                            {
+                                                <button type="button" class="req-btn approve" title="Rebuild this channel's playout from its schedule"
+                                                        disabled="@_ersatzTvActionBusy" @onclick="() => _confirmPlayoutReset = channel.Number">🔁</button>
+                                            }
+                                        </span>
+                                    </div>
+                                    @if (channel.Now is { } airing)
+                                    {
+                                        <div class="text-muted small text-truncate" title="@airing.Describe()">@airing.Describe(channel.Name)</div>
+                                        <div class="progress media-progress" role="progressbar" aria-label="Programme progress"
+                                             aria-valuenow="@((int)airing.ProgressPercent)" aria-valuemin="0" aria-valuemax="100">
+                                            <div class="progress-bar bg-success" style="width: @((int)airing.ProgressPercent)%"></div>
+                                        </div>
+                                        <div class="text-muted small text-truncate">
+                                            @Format.ShortDuration(airing.Remaining) left
+                                            @(channel.Next is { } next ? $" · next {next.Start:HH:mm} {next.Describe(channel.Name)}" : "")
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="text-muted small">
+                                            @(_ersatzTv.DetailError is null ? "Nothing scheduled right now." : "—")
+                                            @(channel.StreamingMode is { Length: > 0 } mode ? $" · {mode}" : "")
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
         @if (Hub.SonarrConfigured)
         {
             <div class="col-lg-4">
@@ -820,6 +913,10 @@ else
     private bool _requestActionBusy;
     private string? _requestActionError;
     private IndexerHealthSnapshot? _indexers;
+    private ErsatzTvSnapshot? _ersatzTv;
+    private bool _ersatzTvActionBusy;
+    private string? _ersatzTvActionError;
+    private string? _confirmPlayoutReset;
     private MissingSnapshot? _missing;
     private bool _missingActionBusy;
     private string? _missingActionError;
@@ -884,6 +981,8 @@ else
             }));
         if (Hub.ProwlarrConfigured)
             tasks.Add(AssignAsync(Hub.GetIndexerHealthAsync(), v => _indexers = v));
+        if (Hub.ErsatzTvConfigured)
+            tasks.Add(AssignAsync(Hub.GetErsatzTvAsync(), v => _ersatzTv = v));
         if (Hub.MissingConfigured)
             tasks.Add(AssignAsync(Hub.GetMissingAsync(), v =>
             {
@@ -1122,6 +1221,34 @@ else
         finally
         {
             _missingActionBusy = false;
+        }
+    }
+
+    private Task StopErsatzTvSessionAsync(ErsatzTvChannel channel) =>
+        RunErsatzTvActionAsync(() => Hub.StopErsatzTvSessionAsync(channel.Number), channel);
+
+    private Task ResetPlayoutAsync(ErsatzTvChannel channel) =>
+        RunErsatzTvActionAsync(() => Hub.ResetErsatzTvPlayoutAsync(channel.Number), channel);
+
+    // Both channel actions change what ErsatzTV is doing right now, so the card is
+    // re-read straight away rather than waiting out the refresh tick.
+    private async Task RunErsatzTvActionAsync(Func<Task> action, ErsatzTvChannel channel)
+    {
+        _confirmPlayoutReset = null;
+        _ersatzTvActionBusy = true;
+        _ersatzTvActionError = null;
+        try
+        {
+            await action();
+            _ersatzTv = await Hub.GetErsatzTvAsync();
+        }
+        catch (Exception ex)
+        {
+            _ersatzTvActionError = $"ErsatzTV channel {channel.Number}: {ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            _ersatzTvActionBusy = false;
         }
     }
 
