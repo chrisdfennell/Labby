@@ -118,6 +118,7 @@ builder.Services.AddSingleton<GitClient>();
 builder.Services.AddSingleton<DockerEngineClient>();
 builder.Services.AddSingleton<ShareLinkService>();
 builder.Services.AddSingleton<NotesStore>();
+builder.Services.AddSingleton<FamilyCalendarStore>();
 builder.Services.AddSingleton<MetricsStore>();
 builder.Services.AddHostedService<MetricsHistoryService>();
 builder.Services.AddSingleton<PingMonitor>();

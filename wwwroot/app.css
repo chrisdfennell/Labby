@@ -538,7 +538,8 @@ code {
     border: 1px solid var(--lab-border);
     border-radius: 0.4rem;
     padding: 0.3rem 0.4rem;
-    overflow: hidden;
+    /* A busy day grows its row rather than silently hiding events. */
+    overflow: visible;
 }
 
 .cal-other {
@@ -583,6 +584,270 @@ code {
 
 .cal-key.cal-tv { color: var(--lab-accent); border: 0; }
 .cal-key.cal-movie { color: var(--lab-amber); border: 0; }
+
+/* ── Family calendar ─────────────────────────────────────────────────── */
+.cal-cell {
+    cursor: pointer;
+}
+
+.cal-cell:hover {
+    background: var(--lab-accent-dim);
+}
+
+.cal-item.cal-family {
+    border-color: var(--evt);
+    color: var(--evt);
+    background: color-mix(in srgb, var(--evt) 12%, transparent);
+    border-radius: 0 0.2rem 0.2rem 0;
+    cursor: pointer;
+}
+
+.cal-item.cal-family:hover {
+    background: color-mix(in srgb, var(--evt) 26%, transparent);
+}
+
+.cal-item.cal-span {
+    border-left-width: 3px;
+}
+
+.cal-time {
+    font-family: var(--lab-mono);
+    font-size: 0.65rem;
+    opacity: 0.8;
+    margin-right: 0.25rem;
+}
+
+.cal-icon {
+    margin-right: 0.2rem;
+}
+
+/* Layer / filter chips */
+.cal-layer {
+    font-family: var(--lab-mono);
+    font-size: 0.72rem;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--lab-border);
+    background: transparent;
+    color: var(--lab-muted);
+    transition: all 0.12s ease;
+}
+
+.cal-layer:hover {
+    border-color: var(--layer, var(--lab-accent));
+    color: var(--lab-text);
+}
+
+.cal-layer.on {
+    border-color: var(--layer, var(--lab-accent));
+    color: var(--layer, var(--lab-accent));
+    background: color-mix(in srgb, var(--layer, var(--lab-accent)) 14%, transparent);
+}
+
+/* People editor */
+.cal-person {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--lab-border);
+    border-radius: 0.4rem;
+    background: var(--lab-panel-deep);
+}
+
+.cal-dot {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    flex: 0 0 auto;
+}
+
+.cal-person-name {
+    background: transparent;
+    border: 0;
+    color: var(--lab-text);
+    width: 7rem;
+    font-size: 0.85rem;
+}
+
+.cal-person-name:focus {
+    outline: 1px solid var(--lab-accent);
+    border-radius: 0.2rem;
+}
+
+.cal-swatches {
+    display: flex;
+    gap: 0.15rem;
+}
+
+.cal-swatch {
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    padding: 0;
+}
+
+.cal-swatch.on {
+    border-color: var(--lab-text);
+    transform: scale(1.15);
+}
+
+.cal-person-del {
+    --bs-btn-padding-y: 0;
+    --bs-btn-padding-x: 0.35rem;
+    line-height: 1.2;
+}
+
+/* Agenda sidebar */
+.cal-agenda {
+    max-height: 34rem;
+    overflow-y: auto;
+}
+
+.cal-agenda-day {
+    font-family: var(--lab-mono);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--lab-muted);
+    margin: 0.6rem 0 0.25rem;
+}
+
+.cal-agenda-day:first-child {
+    margin-top: 0;
+}
+
+.cal-agenda-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-left: 2px solid var(--evt, var(--lab-accent));
+    color: var(--lab-text);
+    font-size: 0.8rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 0 0.2rem 0.2rem 0;
+}
+
+button.cal-agenda-item:hover {
+    background: color-mix(in srgb, var(--evt, var(--lab-accent)) 16%, transparent);
+}
+
+.cal-agenda-time {
+    margin-left: auto;
+    font-family: var(--lab-mono);
+    font-size: 0.68rem;
+    color: var(--lab-muted);
+    white-space: nowrap;
+}
+
+/* Event editor */
+.cal-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 8, 12, 0.72);
+    z-index: 1080;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 4vh 1rem;
+    overflow-y: auto;
+}
+
+.cal-modal {
+    width: min(32rem, 100%);
+    background: var(--lab-panel);
+    border: 1px solid var(--lab-border);
+    border-radius: 0.6rem;
+    box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.5);
+}
+
+.cal-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.9rem;
+    border-bottom: 1px solid var(--lab-border);
+    font-family: var(--lab-mono);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--lab-muted);
+}
+
+.cal-modal-x {
+    background: transparent;
+    border: 0;
+    color: var(--lab-muted);
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
+.cal-modal-x:hover {
+    color: var(--lab-red);
+}
+
+.cal-modal-body {
+    padding: 0.9rem;
+}
+
+.cal-modal-foot {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border-top: 1px solid var(--lab-border);
+}
+
+.cal-label {
+    display: block;
+    font-family: var(--lab-mono);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--lab-muted);
+    margin: 0.8rem 0 0.25rem;
+}
+
+.cal-modal-body > .cal-label:first-child {
+    margin-top: 0;
+}
+
+.cal-sublabel {
+    font-size: 0.7rem;
+    color: var(--lab-muted);
+}
+
+.cal-icon-input {
+    width: 3.4rem;
+    text-align: center;
+    flex: 0 0 auto;
+}
+
+.cal-icon-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem;
+    margin-top: 0.35rem;
+}
+
+.cal-icon-pick {
+    background: transparent;
+    border: 1px solid var(--lab-border);
+    border-radius: 0.3rem;
+    padding: 0.05rem 0.3rem;
+    font-size: 0.9rem;
+    line-height: 1.3;
+}
+
+.cal-icon-pick.on,
+.cal-icon-pick:hover {
+    border-color: var(--lab-accent);
+    background: var(--lab-accent-dim);
+}
 
 /* ── Kiosk mode ──────────────────────────────────────────────────────── */
 html.kiosk .topbar {

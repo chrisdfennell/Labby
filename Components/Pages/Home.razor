@@ -10,6 +10,7 @@
 @inject MinerClient Miners
 @inject LanScanner Presence
 @inject NotesStore Notes
+@inject FamilyCalendarStore Family
 @inject GitClient Git
 @inject MetricsStore Metrics
 @inject Microsoft.Extensions.Options.IOptions<DashboardOptions> Dashboard
@@ -86,6 +87,33 @@
             </div>
         </div>
     </div>
+    @if (_familyUpcoming.Count > 0)
+    {
+        <div class="col-lg-3 col-md-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between">
+                    <span>👨‍👩‍👧 Family</span>
+                    <a href="calendar" class="small">calendar →</a>
+                </div>
+                <div class="card-body">
+                    @foreach (var group in _familyUpcoming.GroupBy(o => o.Date).Take(4))
+                    {
+                        <div class="cal-agenda-day">@FamilyDayLabel(group.Key)</div>
+                        @foreach (var occurrence in group.Take(3))
+                        {
+                            <div class="cal-agenda-item" style="--evt: @(occurrence.Member?.Color ?? "var(--lab-accent)")">
+                                <span class="cal-dot" style="background: @(occurrence.Member?.Color ?? "var(--lab-accent)")"></span>
+                                <span class="text-truncate">
+                                    @(string.IsNullOrEmpty(occurrence.Event.Icon) ? "" : occurrence.Event.Icon + " ")@occurrence.Event.Title
+                                </span>
+                                <span class="cal-agenda-time">@(occurrence.ShortTimeLabel is { Length: > 0 } t ? t : "all day")</span>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    }
     @if (Presence.AnyMonitored)
     {
         <div class="col-lg-3 col-md-6">
@@ -414,7 +442,8 @@
 
     // Cards load independently so one failing doesn't blank the others.
     private Task LoadCardsAsync() =>
-        Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync(), LoadLayoutAsync(), LoadPinnedNoteAsync(), LoadGitAsync());
+        Task.WhenAll(LoadWeatherAsync(), LoadNasAsync(), LoadMediaAsync(), LoadMinersAsync(), LoadLayoutAsync(),
+            LoadPinnedNoteAsync(), LoadGitAsync(), LoadFamilyAsync());
 
     // Same hardening as the Notes page: markdown only, no raw HTML passthrough.
     private static readonly MarkdownPipeline NotePipeline =
@@ -429,6 +458,21 @@
     {
         _pinnedCollapsed = !_pinnedCollapsed;
         await Js.InvokeVoidAsync("labbyPinned.setCollapsed", _pinnedCollapsed);
+    }
+
+    // The tile only appears when there is something on the family calendar to show.
+    private IReadOnlyList<FamilyCalendarStore.FamilyOccurrence> _familyUpcoming = [];
+
+    private async Task LoadFamilyAsync() => _familyUpcoming = await Family.GetUpcomingAsync(7);
+
+    private static string FamilyDayLabel(DateOnly date)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (date == today)
+            return "Today";
+        if (date == today.AddDays(1))
+            return "Tomorrow";
+        return date.ToString("ddd, MMM d");
     }
 
     private GitOverview? _git;

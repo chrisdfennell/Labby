@@ -12,6 +12,7 @@ namespace Labby.Services;
 public sealed class DigestService(
     AmbientWeatherClient weather,
     MediaHub media,
+    FamilyCalendarStore family,
     ServiceHistoryStore serviceHistory,
     AlertNotifier alerts,
     IOptions<AlertOptions> options,
@@ -78,6 +79,23 @@ public sealed class DigestService(
         try
         {
             var today = DateOnly.FromDateTime(DateTime.Today);
+            var events = await family.GetOccurrencesAsync(today, today.AddDays(1), ct);
+            foreach (var day in events.GroupBy(o => o.Date))
+            {
+                var label = day.Key == today ? "Today" : "Tomorrow";
+                sb.Append($"\n👨‍👩‍👧 {label}: {string.Join(", ", day.Take(6).Select(Describe))}");
+                if (day.Count() > 6)
+                    sb.Append($" (+{day.Count() - 6} more)");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Digest family calendar section failed");
+        }
+
+        try
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
             var releases = await media.GetCalendarAsync(today, today, ct);
             sb.Append(releases.Count > 0
                 ? $"\n📅 Today: {string.Join(", ", releases.Take(6).Select(r => $"{r.Title} {r.Detail}".Trim()))}"
@@ -105,6 +123,20 @@ public sealed class DigestService(
             logger.LogDebug(ex, "Digest outage section failed");
         }
 
+        return sb.ToString();
+    }
+
+    /// <summary>"⚽ 6p Soccer practice (Ada)" — compact enough for a push notification.</summary>
+    private static string Describe(FamilyCalendarStore.FamilyOccurrence occurrence)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrEmpty(occurrence.Event.Icon))
+            sb.Append(occurrence.Event.Icon).Append(' ');
+        if (occurrence.ShortTimeLabel is { Length: > 0 } time)
+            sb.Append(time).Append(' ');
+        sb.Append(occurrence.Event.Title);
+        if (occurrence.Member is { } member)
+            sb.Append($" ({member.Name})");
         return sb.ToString();
     }
 }

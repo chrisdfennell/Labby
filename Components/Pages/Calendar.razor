@@ -1,58 +1,334 @@
 @page "/calendar"
 @rendermode InteractiveServer
+@using Labby.Services
+@using FamilyEvent = Labby.Services.FamilyCalendarStore.FamilyEvent
+@using FamilyMember = Labby.Services.FamilyCalendarStore.FamilyMember
+@using FamilyOccurrence = Labby.Services.FamilyCalendarStore.FamilyOccurrence
 @inject MediaHub Hub
+@inject FamilyCalendarStore Family
 
 <PageTitle>Labby — Calendar</PageTitle>
 
-<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
-    <h1 class="mb-0">📅 Release calendar</h1>
+<div class="d-flex align-items-center flex-wrap gap-3 mb-3">
+    <h1 class="mb-0">📅 Calendar</h1>
+    <button class="btn btn-sm btn-outline-primary" @onclick="() => NewEvent(DateOnly.FromDateTime(DateTime.Today))">
+        + Event
+    </button>
     <div class="chart-range ms-auto">
-        <button class="btn btn-outline-primary" @onclick="() => ShiftMonthAsync(-1)">←</button>
+        <button class="btn btn-outline-primary" @onclick="() => ShiftMonthAsync(-1)" title="Previous month">←</button>
         <button class="btn btn-outline-primary" @onclick="() => ShiftMonthAsync(0)">today</button>
-        <button class="btn btn-outline-primary" @onclick="() => ShiftMonthAsync(1)">→</button>
+        <button class="btn btn-outline-primary" @onclick="() => ShiftMonthAsync(1)" title="Next month">→</button>
     </div>
 </div>
 
-@if (!Hub.SonarrConfigured && !Hub.RadarrConfigured)
-{
-    <div class="alert alert-warning">Configure Sonarr and/or Radarr under <code>Media</code> to populate the calendar.</div>
-}
-else
-{
-    <h4 class="mb-3">@_month.ToString("MMMM yyyy")</h4>
-    @if (_error is not null)
+<div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+    <h4 class="mb-0 me-2">@_month.ToString("MMMM yyyy")</h4>
+    <button class="cal-layer @(_showFamily ? "on" : "")" style="--layer: var(--lab-accent)"
+            @onclick="() => _showFamily = !_showFamily">👨‍👩‍👧 family</button>
+    @if (Hub.SonarrConfigured || Hub.RadarrConfigured)
     {
-        <div class="alert alert-danger">@_error</div>
+        <button class="cal-layer @(_showReleases ? "on" : "")" style="--layer: var(--lab-amber)"
+                @onclick="() => _showReleases = !_showReleases">🎬 releases</button>
     }
-    <div class="cal-grid @(_loading ? "cal-loading" : "")">
-        @foreach (var day in (string[])["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
-        {
-            <div class="cal-head">@day</div>
-        }
-        @foreach (var day in GridDays())
-        {
-            <div class="cal-cell @(day.Month != _month.Month ? "cal-other" : "") @(day == DateOnly.FromDateTime(DateTime.Today) ? "cal-today" : "")">
-                <div class="cal-date">@day.Day</div>
-                @foreach (var item in _byDay.GetValueOrDefault(day, []))
+    @foreach (var member in _members)
+    {
+        <button class="cal-layer @(IsMemberVisible(member.Id) ? "on" : "")" style="--layer: @member.Color"
+                @onclick="() => ToggleMember(member.Id)">@member.Name</button>
+    }
+    <button class="cal-layer" @onclick="() => _managingPeople = !_managingPeople">⚙️ people</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+@if (_managingPeople)
+{
+    <div class="card mb-3">
+        <div class="card-header">👨‍👩‍👧 Family members</div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                @foreach (var member in _members)
                 {
-                    <div class="cal-item @(item.Source == "Sonarr" ? "cal-tv" : "cal-movie")"
-                         title="@item.Title @item.Detail (@item.Source)@(item.HasFile ? " — downloaded" : "")">
-                        @(item.HasFile ? "✔ " : "")@item.Title <span class="cal-detail">@item.Detail</span>
+                    <div class="cal-person">
+                        <span class="cal-dot" style="background: @member.Color"></span>
+                        <input class="cal-person-name" value="@member.Name"
+                               @onchange="e => RenameMemberAsync(member, e.Value?.ToString() ?? member.Name)" />
+                        <div class="cal-swatches">
+                            @foreach (var color in FamilyCalendarStore.Palette)
+                            {
+                                <button type="button" class="cal-swatch @(color == member.Color ? "on" : "")"
+                                        style="background: @color" title="@color"
+                                        @onclick="() => RecolorMemberAsync(member, color)"></button>
+                            }
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-danger cal-person-del"
+                                title="Remove @member.Name (their events stay, unassigned)"
+                                @onclick="() => DeleteMemberAsync(member)">×</button>
                     </div>
                 }
+                @if (_members.Count == 0)
+                {
+                    <span class="text-muted small">Add everyone in the house — each gets a colour on the grid.</span>
+                }
             </div>
-        }
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+                <input class="form-control form-control-sm" style="max-width: 14rem" placeholder="Name"
+                       @bind="_newMemberName" @bind:event="oninput" @onkeydown="MemberKeyDownAsync" />
+                <button class="btn btn-sm btn-outline-primary" disabled="@string.IsNullOrWhiteSpace(_newMemberName)"
+                        @onclick="AddMemberAsync">add person</button>
+            </div>
+        </div>
     </div>
-    <p class="text-muted small mt-2">
-        <span class="cal-key cal-tv">■</span> episodes · <span class="cal-key cal-movie">■</span> movie releases · ✔ already downloaded
-    </p>
+}
+
+<div class="row g-3">
+    <div class="col-xl-9">
+        <div class="cal-grid @(_loading ? "cal-loading" : "")">
+            @foreach (var name in (string[])["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+            {
+                <div class="cal-head">@name</div>
+            }
+            @foreach (var day in GridDays())
+            {
+                var isToday = day == DateOnly.FromDateTime(DateTime.Today);
+                <div class="cal-cell @(day.Month != _month.Month ? "cal-other" : "") @(isToday ? "cal-today" : "")"
+                     @onclick="() => NewEvent(day)" title="Click to add an event on @day.ToString("MMM d")">
+                    <div class="cal-date">@day.Day</div>
+                    @if (_showFamily)
+                    {
+                        @foreach (var occurrence in VisibleFamily(day))
+                        {
+                            <div class="cal-item cal-family @(occurrence.IsMultiDay ? "cal-span" : "")"
+                                 style="--evt: @Color(occurrence)"
+                                 title="@Tooltip(occurrence)"
+                                 @onclick:stopPropagation="true"
+                                 @onclick="() => EditEvent(occurrence.Event)">
+                                @if (!string.IsNullOrEmpty(occurrence.Event.Icon))
+                                {
+                                    <span class="cal-icon">@occurrence.Event.Icon</span>
+                                }
+                                @if (occurrence.ShortTimeLabel is { Length: > 0 } time)
+                                {
+                                    <span class="cal-time">@time</span>
+                                }
+                                @occurrence.Event.Title
+                            </div>
+                        }
+                    }
+                    @if (_showReleases)
+                    {
+                        @foreach (var item in _byDay.GetValueOrDefault(day, []))
+                        {
+                            <div class="cal-item @(item.Source == "Sonarr" ? "cal-tv" : "cal-movie")"
+                                 title="@item.Title @item.Detail (@item.Source)@(item.HasFile ? " — downloaded" : "")">
+                                @(item.HasFile ? "✔ " : "")@item.Title <span class="cal-detail">@item.Detail</span>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+        <p class="text-muted small mt-2">
+            Click any day to add an event ·
+            <span class="cal-key cal-tv">■</span> episodes ·
+            <span class="cal-key cal-movie">■</span> movie releases · ✔ already downloaded
+            @if (_mediaError is not null)
+            {
+                <span class="text-danger"> · releases unavailable: @_mediaError</span>
+            }
+        </p>
+    </div>
+
+    <div class="col-xl-3">
+        <div class="card">
+            <div class="card-header">🔜 Next two weeks</div>
+            <div class="card-body cal-agenda">
+                @if (_upcoming.Count == 0)
+                {
+                    <span class="text-muted small">Nothing scheduled. Click a day on the grid to add something.</span>
+                }
+                else
+                {
+                    @foreach (var group in _upcoming.GroupBy(o => o.Date))
+                    {
+                        <div class="cal-agenda-day">@DayLabel(group.Key)</div>
+                        @foreach (var occurrence in group)
+                        {
+                            <button type="button" class="cal-agenda-item" style="--evt: @Color(occurrence)"
+                                    @onclick="() => EditEvent(occurrence.Event)">
+                                <span class="cal-dot" style="background: @Color(occurrence)"></span>
+                                <span class="text-truncate">
+                                    @(string.IsNullOrEmpty(occurrence.Event.Icon) ? "" : occurrence.Event.Icon + " ")@occurrence.Event.Title
+                                </span>
+                                <span class="cal-agenda-time">@(occurrence.TimeLabel is { Length: > 0 } t ? t : "all day")</span>
+                            </button>
+                        }
+                    }
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_editing is not null)
+{
+    <div class="cal-modal-backdrop" @onclick="CloseEditor">
+        <div class="cal-modal" @onclick:stopPropagation="true">
+            <div class="cal-modal-head">
+                <span>@(_editing.Id > 0 ? "Edit event" : "New event")</span>
+                <button type="button" class="cal-modal-x" @onclick="CloseEditor">×</button>
+            </div>
+            <div class="cal-modal-body">
+                @if (_formError is not null)
+                {
+                    <div class="alert alert-danger py-1 px-2 small">@_formError</div>
+                }
+                <label class="cal-label">Title</label>
+                <div class="d-flex gap-2">
+                    <input class="form-control form-control-sm cal-icon-input" placeholder="🎂" maxlength="4"
+                           @bind="_form.Icon" @bind:event="oninput" />
+                    <input class="form-control form-control-sm" placeholder="Soccer practice"
+                           @bind="_form.Title" @bind:event="oninput" />
+                </div>
+                <div class="cal-icon-row">
+                    @foreach (var icon in QuickIcons)
+                    {
+                        <button type="button" class="cal-icon-pick @(_form.Icon == icon ? "on" : "")"
+                                @onclick="() => ToggleIcon(icon)">@icon</button>
+                    }
+                </div>
+
+                <label class="cal-label">Who</label>
+                <div class="d-flex flex-wrap gap-1">
+                    <button type="button" class="cal-layer @(_form.MemberId is null ? "on" : "")"
+                            style="--layer: var(--lab-muted)" @onclick="() => _form.MemberId = null">everyone</button>
+                    @foreach (var member in _members)
+                    {
+                        <button type="button" class="cal-layer @(_form.MemberId == member.Id ? "on" : "")"
+                                style="--layer: @member.Color" @onclick="() => _form.MemberId = member.Id">@member.Name</button>
+                    }
+                </div>
+
+                <label class="cal-label">When</label>
+                <div class="row g-2 align-items-center">
+                    <div class="col-6">
+                        <input type="date" class="form-control form-control-sm" @bind="_form.StartDate" />
+                    </div>
+                    <div class="col-6">
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" id="allday" checked="@_form.AllDay"
+                                   @onchange="e => ToggleAllDay((bool)(e.Value ?? false))" />
+                            <label class="form-check-label small" for="allday">all day</label>
+                        </div>
+                    </div>
+                    @if (!_form.AllDay)
+                    {
+                        <div class="col-6">
+                            <input type="time" class="form-control form-control-sm" @bind="_form.StartTime" />
+                        </div>
+                        <div class="col-6">
+                            <input type="time" class="form-control form-control-sm" @bind="_form.EndTime" />
+                        </div>
+                    }
+                    <div class="col-12">
+                        <label class="cal-sublabel">ends on</label>
+                        <input type="date" class="form-control form-control-sm" @bind="_form.EndDate" />
+                    </div>
+                </div>
+
+                <label class="cal-label">Repeats</label>
+                <div class="d-flex flex-wrap gap-1">
+                    @foreach (var repeat in FamilyCalendarStore.Repeats)
+                    {
+                        <button type="button" class="cal-layer @(_form.Repeat == repeat ? "on" : "")"
+                                style="--layer: var(--lab-accent)" @onclick="() => _form.Repeat = repeat">@repeat</button>
+                    }
+                </div>
+                @if (_form.Repeat != "none")
+                {
+                    <div class="mt-2">
+                        <label class="cal-sublabel">until (optional)</label>
+                        <input type="date" class="form-control form-control-sm" @bind="_form.RepeatUntil" />
+                    </div>
+                }
+
+                <label class="cal-label">Where</label>
+                <input class="form-control form-control-sm" placeholder="Field 3, Riverside Park"
+                       @bind="_form.Location" @bind:event="oninput" />
+
+                <label class="cal-label">Notes</label>
+                <textarea class="form-control form-control-sm" rows="2" placeholder="Bring the folding chairs"
+                          @bind="_form.Notes" @bind:event="oninput"></textarea>
+            </div>
+            <div class="cal-modal-foot">
+                @if (_editing.Id > 0)
+                {
+                    @if (_confirmDelete)
+                    {
+                        <button class="btn btn-sm btn-danger" @onclick="DeleteEventAsync">confirm delete</button>
+                        @if (_editing.Repeat != "none")
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="EndSeriesAsync"
+                                    title="Keep past occurrences, stop repeating from this month on">end series</button>
+                        }
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => _confirmDelete = true">delete</button>
+                    }
+                }
+                <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="CloseEditor">cancel</button>
+                <button class="btn btn-sm btn-outline-primary" disabled="@_saving" @onclick="SaveEventAsync">
+                    @(_saving ? "saving…" : "save")
+                </button>
+            </div>
+        </div>
+    </div>
 }
 
 @code {
+    private static readonly string[] QuickIcons =
+        ["🎂", "🏥", "⚽", "🎓", "✈️", "🍽️", "🎉", "🗑️", "💼", "🩺", "🎵", "🐾"];
+
     private DateOnly _month = new(DateTime.Today.Year, DateTime.Today.Month, 1);
     private Dictionary<DateOnly, List<UpcomingItem>> _byDay = [];
+    private Dictionary<DateOnly, List<FamilyOccurrence>> _familyByDay = [];
+    private IReadOnlyList<FamilyMember> _members = [];
+    private IReadOnlyList<FamilyOccurrence> _upcoming = [];
+    private readonly HashSet<long> _hiddenMembers = [];
+
     private bool _loading = true;
+    private bool _showFamily = true;
+    private bool _showReleases = true;
+    private bool _managingPeople;
     private string? _error;
+    private string? _mediaError;
+    private string _newMemberName = "";
+
+    private FamilyEvent? _editing;
+    private EventForm _form = new();
+    private bool _saving;
+    private bool _confirmDelete;
+    private string? _formError;
+
+    /// <summary>Editable shape of an event — the store's record is immutable.</summary>
+    private sealed class EventForm
+    {
+        public string Title { get; set; } = "";
+        public string Icon { get; set; } = "";
+        public string Notes { get; set; } = "";
+        public string Location { get; set; } = "";
+        public long? MemberId { get; set; }
+        public DateTime StartDate { get; set; } = DateTime.Today;
+        public DateTime EndDate { get; set; } = DateTime.Today;
+        public bool AllDay { get; set; } = true;
+        public DateTime StartTime { get; set; } = DateTime.Today.AddHours(18);
+        public DateTime EndTime { get; set; } = DateTime.Today.AddHours(19);
+        public string Repeat { get; set; } = "none";
+        public DateTime? RepeatUntil { get; set; }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -76,10 +352,33 @@ else
         _error = null;
         try
         {
-            var items = await Hub.GetCalendarAsync(_month, _month.AddMonths(1).AddDays(-1));
-            _byDay = items
-                .GroupBy(i => DateOnly.FromDateTime(i.At.Date))
+            var days = GridDays().ToList();
+            var from = days[0];
+            var to = days[^1];
+
+            _members = await Family.GetMembersAsync();
+            _familyByDay = (await Family.GetOccurrencesAsync(from, to))
+                .GroupBy(o => o.Date)
                 .ToDictionary(g => g.Key, g => g.ToList());
+            _upcoming = await Family.GetUpcomingAsync();
+
+            // Releases are best-effort: a Sonarr outage should not hide the family calendar.
+            _mediaError = null;
+            if (Hub.SonarrConfigured || Hub.RadarrConfigured)
+            {
+                try
+                {
+                    var items = await Hub.GetCalendarAsync(_month, _month.AddMonths(1).AddDays(-1));
+                    _byDay = items
+                        .GroupBy(i => DateOnly.FromDateTime(i.At.Date))
+                        .ToDictionary(g => g.Key, g => g.ToList());
+                }
+                catch (Exception ex)
+                {
+                    _byDay = [];
+                    _mediaError = ex.GetBaseException().Message;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -89,6 +388,195 @@ else
         {
             _loading = false;
         }
+    }
+
+    private IEnumerable<FamilyOccurrence> VisibleFamily(DateOnly day) =>
+        _familyByDay.GetValueOrDefault(day, []).Where(o => IsMemberVisible(o.Event.MemberId));
+
+    private bool IsMemberVisible(long? memberId) => memberId is not { } id || !_hiddenMembers.Contains(id);
+
+    private void ToggleMember(long id)
+    {
+        if (!_hiddenMembers.Remove(id))
+            _hiddenMembers.Add(id);
+    }
+
+    private static string Color(FamilyOccurrence occurrence) => occurrence.Member?.Color ?? "var(--lab-accent)";
+
+    private static string DayLabel(DateOnly date)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (date == today)
+            return "Today";
+        if (date == today.AddDays(1))
+            return "Tomorrow";
+        return date.ToString("ddd, MMM d");
+    }
+
+    private static string Tooltip(FamilyOccurrence occurrence)
+    {
+        var parts = new List<string> { occurrence.Event.Title };
+        if (occurrence.TimeLabel is { Length: > 0 } time)
+            parts.Add(time);
+        if (occurrence.Member is { } member)
+            parts.Add(member.Name);
+        if (!string.IsNullOrWhiteSpace(occurrence.Event.Location))
+            parts.Add("@ " + occurrence.Event.Location);
+        if (!string.IsNullOrWhiteSpace(occurrence.Event.Notes))
+            parts.Add(occurrence.Event.Notes);
+        return string.Join(" · ", parts);
+    }
+
+    // ── Editor ──────────────────────────────────────────────────────────
+
+    private void NewEvent(DateOnly day)
+    {
+        _editing = new FamilyEvent { StartDate = day, EndDate = day };
+        _form = new EventForm
+        {
+            StartDate = day.ToDateTime(TimeOnly.MinValue),
+            EndDate = day.ToDateTime(TimeOnly.MinValue),
+            StartTime = day.ToDateTime(new TimeOnly(18, 0)),
+            EndTime = day.ToDateTime(new TimeOnly(19, 0)),
+        };
+        _confirmDelete = false;
+        _formError = null;
+    }
+
+    private void EditEvent(FamilyEvent ev)
+    {
+        _editing = ev;
+        _form = new EventForm
+        {
+            Title = ev.Title,
+            Icon = ev.Icon,
+            Notes = ev.Notes,
+            Location = ev.Location,
+            MemberId = ev.MemberId,
+            StartDate = ev.StartDate.ToDateTime(TimeOnly.MinValue),
+            EndDate = ev.EndDate.ToDateTime(TimeOnly.MinValue),
+            AllDay = ev.AllDay,
+            StartTime = ev.StartDate.ToDateTime(ev.StartTime ?? new TimeOnly(18, 0)),
+            EndTime = ev.StartDate.ToDateTime(ev.EndTime ?? ev.StartTime?.AddHours(1) ?? new TimeOnly(19, 0)),
+            Repeat = ev.Repeat,
+            RepeatUntil = ev.RepeatUntil?.ToDateTime(TimeOnly.MinValue),
+        };
+        _confirmDelete = false;
+        _formError = null;
+    }
+
+    private void ToggleAllDay(bool allDay) => _form.AllDay = allDay;
+
+    private void ToggleIcon(string icon) => _form.Icon = _form.Icon == icon ? "" : icon;
+
+    private void CloseEditor()
+    {
+        _editing = null;
+        _confirmDelete = false;
+        _formError = null;
+    }
+
+    private async Task SaveEventAsync()
+    {
+        if (_editing is null)
+            return;
+        if (string.IsNullOrWhiteSpace(_form.Title))
+        {
+            _formError = "Give the event a title.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var start = DateOnly.FromDateTime(_form.StartDate);
+            var end = DateOnly.FromDateTime(_form.EndDate);
+            if (end < start)
+                end = start;
+            var ev = new FamilyEvent
+            {
+                Id = _editing.Id,
+                Title = _form.Title,
+                Icon = _form.Icon,
+                Notes = _form.Notes ?? "",
+                Location = _form.Location ?? "",
+                MemberId = _form.MemberId,
+                StartDate = start,
+                EndDate = end,
+                StartTime = _form.AllDay ? null : TimeOnly.FromDateTime(_form.StartTime),
+                EndTime = _form.AllDay ? null : TimeOnly.FromDateTime(_form.EndTime),
+                Repeat = _form.Repeat,
+                RepeatUntil = _form.Repeat == "none" || _form.RepeatUntil is null
+                    ? null
+                    : DateOnly.FromDateTime(_form.RepeatUntil.Value),
+            };
+            await Family.SaveEventAsync(ev);
+            CloseEditor();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteEventAsync()
+    {
+        if (_editing is { Id: > 0 } ev)
+            await Family.DeleteEventAsync(ev.Id);
+        CloseEditor();
+        await LoadAsync();
+    }
+
+    private async Task EndSeriesAsync()
+    {
+        if (_editing is { Id: > 0 } ev)
+            await Family.EndSeriesAsync(ev.Id, DateOnly.FromDateTime(_form.StartDate));
+        CloseEditor();
+        await LoadAsync();
+    }
+
+    // ── People ──────────────────────────────────────────────────────────
+
+    private async Task MemberKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await AddMemberAsync();
+    }
+
+    private async Task AddMemberAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newMemberName))
+            return;
+        var color = FamilyCalendarStore.Palette[_members.Count % FamilyCalendarStore.Palette.Length];
+        await Family.SaveMemberAsync(null, _newMemberName, color);
+        _newMemberName = "";
+        await LoadAsync();
+    }
+
+    private async Task RenameMemberAsync(FamilyMember member, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Trim() == member.Name)
+            return;
+        await Family.SaveMemberAsync(member.Id, name, member.Color);
+        await LoadAsync();
+    }
+
+    private async Task RecolorMemberAsync(FamilyMember member, string color)
+    {
+        await Family.SaveMemberAsync(member.Id, member.Name, color);
+        await LoadAsync();
+    }
+
+    private async Task DeleteMemberAsync(FamilyMember member)
+    {
+        await Family.DeleteMemberAsync(member.Id);
+        _hiddenMembers.Remove(member.Id);
+        await LoadAsync();
     }
 
     private IEnumerable<DateOnly> GridDays()
