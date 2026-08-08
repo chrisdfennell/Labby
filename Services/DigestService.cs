@@ -11,8 +11,13 @@ namespace Labby.Services;
 /// </summary>
 public sealed class DigestService(
     AmbientWeatherClient weather,
+    WeatherAlertMonitor weatherAlerts,
     MediaHub media,
     FamilyCalendarStore family,
+    LanScanner presence,
+    PublicIpMonitor publicIp,
+    SpeedtestService speedtest,
+    UpdateService updates,
     ServiceHistoryStore serviceHistory,
     AlertNotifier alerts,
     IOptions<AlertOptions> options,
@@ -105,6 +110,21 @@ public sealed class DigestService(
             logger.LogDebug(ex, "Digest weather section failed");
         }
 
+        // Anything the National Weather Service has in force goes right under the
+        // conditions it qualifies. Silent when there is nothing active.
+        try
+        {
+            foreach (var alert in weatherAlerts.Active.Take(3))
+            {
+                var ends = alert.Ends is { } e ? $" until {e.ToLocalTime():ddd HH:mm}" : "";
+                sb.Append($"\n⚠️ {(string.IsNullOrWhiteSpace(alert.Headline) ? alert.Event : alert.Headline)}{ends}");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Digest weather alert section failed");
+        }
+
         try
         {
             var today = DateOnly.FromDateTime(DateTime.Today);
@@ -136,6 +156,23 @@ public sealed class DigestService(
             logger.LogDebug(ex, "Digest calendar section failed");
         }
 
+        // Presence only speaks up once devices are starred on the Devices page.
+        try
+        {
+            if (presence.AnyMonitored)
+            {
+                var home = presence.Presence.Where(p => p.Home).Select(p => p.Name).ToList();
+                var away = presence.Presence.Where(p => !p.Home).Select(p => p.Name).ToList();
+                sb.Append(home.Count > 0 ? $"\n🏠 Home: {string.Join(", ", home)}" : "\n🏠 Nobody home");
+                if (away.Count > 0)
+                    sb.Append($" · out: {string.Join(", ", away)}");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Digest presence section failed");
+        }
+
         try
         {
             var since = DateTimeOffset.Now.AddHours(-24);
@@ -150,6 +187,32 @@ public sealed class DigestService(
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Digest outage section failed");
+        }
+
+        try
+        {
+            var parts = new List<string>();
+            if (publicIp.Current is { } ip)
+                parts.Add($"IP {ip}");
+            if (speedtest.Latest is { } result)
+                parts.Add($"{result.DownMbps:0}↓/{result.UpMbps:0}↑ Mbps ({result.At:MMM d})");
+            if (parts.Count > 0)
+                sb.Append($"\n🌐 {string.Join(" · ", parts)}");
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Digest internet section failed");
+        }
+
+        // Only worth a line when there is actually something to pull.
+        try
+        {
+            if (await updates.CheckAsync(ct) is { UpdateAvailable: true } check)
+                sb.Append($"\n⬆️ A newer Labby image is published{(check.LatestVersion is { } v ? $" ({v})" : "")} — update from Settings.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Digest update section failed");
         }
 
         return sb.ToString();
