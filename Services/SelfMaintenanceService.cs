@@ -88,7 +88,17 @@ public sealed class SelfMaintenanceService(DockerEngineClient docker, ILogger<Se
     /// Returns as soon as the helper is running; the build itself takes minutes and
     /// outlives this container.
     /// </summary>
-    public async Task RebuildAsync(CancellationToken ct = default)
+    public Task RebuildAsync(CancellationToken ct = default) => RunComposeAsync(build: true, ct);
+
+    /// <summary>
+    /// Recreates Labby from the compose project without building — the way to pick
+    /// up an edited .env. Compose re-interpolates the file it is given, which the
+    /// image-only update path can't do: Watchtower copies the running container's
+    /// environment onto the new one, so config changes never reach it.
+    /// </summary>
+    public Task RecreateFromComposeAsync(CancellationToken ct = default) => RunComposeAsync(build: false, ct);
+
+    private async Task RunComposeAsync(bool build, CancellationToken ct)
     {
         var self = await DescribeSelfAsync(ct) ?? throw new InvalidOperationException(NoContainer);
         if (self.Compose is not { } compose)
@@ -100,8 +110,11 @@ public sealed class SelfMaintenanceService(DockerEngineClient docker, ILogger<Se
         var service = Quote(compose.Service);
         // Build first and recreate only if it succeeds, so a broken build leaves the
         // running Labby alone. set -x puts the commands themselves in the log view.
-        var script = $"set -x; docker compose {args} build --progress plain {service} && " +
-                     $"docker compose {args} up -d {service}";
+        // A plain recreate skips the build and just re-reads the compose file and .env.
+        var script = build
+            ? $"set -x; docker compose {args} build --progress plain {service} && " +
+              $"docker compose {args} up -d {service}"
+            : $"set -x; docker compose {args} up -d {service}";
 
         var binds = new List<string>
         {
@@ -116,8 +129,8 @@ public sealed class SelfMaintenanceService(DockerEngineClient docker, ILogger<Se
                 binds.Add($"{dir}:{dir}"); // a compose file kept outside the project directory
         }
 
-        logger.LogInformation("Rebuild requested for compose service {Service} of project {Project} in {Dir}",
-            compose.Service, compose.Project, compose.WorkingDir);
+        logger.LogInformation("{Action} requested for compose service {Service} of project {Project} in {Dir}",
+            build ? "Rebuild" : "Recreate", compose.Service, compose.Project, compose.WorkingDir);
 
         await docker.RemoveAsync(RebuildContainerName, ct); // keep only the newest build's log
         await docker.RunHelperAsync(

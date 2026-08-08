@@ -196,12 +196,20 @@
                     </p>
                     <p class="text-muted small mb-2">
                         Restart bounces the container — Labby is gone for a few seconds and this page reconnects on its own.
+                        Apply <code>.env</code> runs <code>docker compose up -d</code>, which is the only way a config change
+                        reaches Labby: restart reuses the old environment, and the update path copies it onto the new image.
                         Rebuild builds the image from the source in the project directory and recreates the container with it,
                         which takes a few minutes; a failed build leaves the running Labby alone.
                     </p>
                     <div class="d-flex flex-wrap align-items-center gap-2">
                         <button class="btn btn-sm btn-outline-secondary" disabled="@_restarting" @onclick="RestartContainerAsync">
                             @(_restarting ? "restarting…" : "🔄 Restart container")
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary"
+                                disabled="@(!_self.CanRebuild || _recreating || _rebuildStatus is { Running: true })"
+                                title="docker compose up -d — picks up an edited .env"
+                                @onclick="RecreateFromComposeAsync">
+                            @(_recreating ? "recreating…" : "♻️ Apply .env & recreate")
                         </button>
                         <button class="btn btn-sm btn-outline-primary"
                                 disabled="@(!_self.CanRebuild || _rebuilding || _rebuildStatus is { Running: true })"
@@ -332,6 +340,7 @@
     private string? _maintenanceError;
     private bool _restarting;
     private bool _rebuilding;
+    private bool _recreating;
     private bool _logLoading;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -458,6 +467,29 @@
         finally
         {
             _rebuilding = false;
+        }
+    }
+
+    private async Task RecreateFromComposeAsync()
+    {
+        if (!await ConfirmAsync("Run docker compose up -d to recreate Labby with the current .env? "
+                               + "Labby goes away for a few seconds and this page reconnects on its own."))
+            return;
+        _maintenanceError = null;
+        _recreating = true;
+        _rebuildLog = null;
+        try
+        {
+            await Maintenance.RecreateFromComposeAsync();
+            _rebuildStatus = await Maintenance.GetRebuildStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            _maintenanceError = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _recreating = false;
         }
     }
 
