@@ -192,13 +192,25 @@ public sealed partial class LanScanner(
         });
         await Task.WhenAll(pings);
 
+        // The ARP table holds every neighbour the host knows, which inside a container
+        // includes Docker's own bridge networks (172.x, 10.x with 02:42:* MACs). Only
+        // the subnet we actually swept belongs on the Devices page.
         var now = DateTimeOffset.Now;
+        var scope = prefix + ".";
         foreach (var (ip, mac) in await ReadArpAsync(ct))
         {
+            if (!ip.StartsWith(scope, StringComparison.Ordinal))
+                continue;
             var entry = _hosts.GetOrAdd(mac, m => new Tracked { Mac = m, FirstSeen = now });
             entry.Ip = ip;
             entry.LastSeen = now;
         }
+
+        // Drop anything picked up before this filter existed (or after the subnet
+        // changed) so the list corrects itself without waiting for a restart.
+        foreach (var (mac, host) in _hosts)
+            if (!host.Ip.StartsWith(scope, StringComparison.Ordinal))
+                _hosts.TryRemove(mac, out _);
 
         // Resolve hostnames for freshly-seen hosts we don't have a name for yet.
         await Task.WhenAll(_hosts.Values
