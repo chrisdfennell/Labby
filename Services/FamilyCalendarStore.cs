@@ -25,7 +25,17 @@ public sealed class FamilyCalendarStore(IOptions<HistoryOptions> options, IHostE
 
     public static readonly string[] Repeats = ["none", "daily", "weekly", "biweekly", "monthly", "yearly"];
 
-    public sealed record FamilyMember(long Id, string Name, string Color);
+    /// <summary>
+    /// A person in the house. <paramref name="Avatar"/> and <paramref name="IsKid"/>
+    /// only matter to the chores portal; the calendar ignores them.
+    /// </summary>
+    public sealed record FamilyMember(long Id, string Name, string Color, string Avatar = "", bool IsKid = false)
+    {
+        /// <summary>Falls back to the first letter when no avatar emoji is set.</summary>
+        public string Face => string.IsNullOrEmpty(Avatar)
+            ? (Name.Length > 0 ? Name[..1].ToUpperInvariant() : "?")
+            : Avatar;
+    }
 
     public sealed record FamilyEvent
     {
@@ -96,11 +106,35 @@ public sealed class FamilyCalendarStore(IOptions<HistoryOptions> options, IHostE
         await using var conn = new SqliteConnection(ConnectionString);
         await conn.OpenAsync(ct);
         var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, name, color FROM family_members ORDER BY name COLLATE NOCASE";
+        cmd.CommandText = "SELECT id, name, color, avatar, is_kid FROM family_members ORDER BY name COLLATE NOCASE";
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
-            members.Add(new FamilyMember(reader.GetInt64(0), reader.GetString(1), reader.GetString(2)));
+        {
+            members.Add(new FamilyMember(reader.GetInt64(0), reader.GetString(1), reader.GetString(2),
+                reader.GetString(3), reader.GetInt64(4) != 0));
+        }
         return members;
+    }
+
+    /// <summary>The kids, for the chores portal.</summary>
+    public async Task<IReadOnlyList<FamilyMember>> GetKidsAsync(CancellationToken ct = default) =>
+        (await GetMembersAsync(ct)).Where(m => m.IsKid).ToList();
+
+    public async Task<FamilyMember?> GetMemberAsync(long id, CancellationToken ct = default) =>
+        (await GetMembersAsync(ct)).FirstOrDefault(m => m.Id == id);
+
+    /// <summary>Sets the chores-portal fields; the calendar's name and colour are untouched.</summary>
+    public async Task SetKidProfileAsync(long id, string avatar, bool isKid, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(ConnectionString);
+        await conn.OpenAsync(ct);
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE family_members SET avatar = $a, is_kid = $k WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("$a", avatar);
+        cmd.Parameters.AddWithValue("$k", isKid ? 1 : 0);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     public async Task<long> SaveMemberAsync(long? id, string name, string color, CancellationToken ct = default)
@@ -374,6 +408,22 @@ public sealed class FamilyCalendarStore(IOptions<HistoryOptions> options, IHostE
                 CREATE INDEX IF NOT EXISTS ix_family_events_start ON family_events (start_date);
                 """;
             await cmd.ExecuteNonQueryAsync(ct);
+
+            // Rosters created before the chores portal existed migrate in place.
+            foreach (var column in (string[])
+                     ["avatar TEXT NOT NULL DEFAULT ''", "is_kid INTEGER NOT NULL DEFAULT 0"])
+            {
+                var migrate = conn.CreateCommand();
+                migrate.CommandText = $"ALTER TABLE family_members ADD COLUMN {column}";
+                try
+                {
+                    await migrate.ExecuteNonQueryAsync(ct);
+                }
+                catch (SqliteException)
+                {
+                    // duplicate column — already migrated
+                }
+            }
             _initialized = true;
         }
         finally

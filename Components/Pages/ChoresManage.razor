@@ -1,0 +1,561 @@
+@page "/chores/manage"
+@rendermode InteractiveServer
+@using Chore = Labby.Services.ChoreStore.Chore
+@using FamilyMember = Labby.Services.FamilyCalendarStore.FamilyMember
+@inject FamilyCalendarStore Family
+@inject ChoreStore Chores
+
+<PageTitle>Labby — Chores</PageTitle>
+
+<div class="d-flex align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="mb-0">🧹 Chores</h1>
+    <a class="btn btn-sm btn-outline-primary" href="chores" target="_blank">open kids' portal ↗</a>
+    @if (_kids.Count > 0)
+    {
+        <button class="btn btn-sm btn-outline-primary" @onclick="() => NewChore(_kids[0].Id)">+ Chore</button>
+    }
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+@if (_members.Count == 0)
+{
+    <div class="alert alert-warning">
+        Add the family first — the roster lives on the <a href="calendar">Calendar</a> page under <code>⚙️ people</code>.
+    </div>
+}
+else
+{
+    @if (_pending.Count > 0)
+    {
+        <div class="card mb-4">
+            <div class="card-header">⏳ Waiting for you (@_pending.Count)</div>
+            <div class="card-body">
+                @foreach (var item in _pending)
+                {
+                    <div class="chore-pending">
+                        <span class="cal-dot" style="background: @ColorOf(item.MemberId)"></span>
+                        <span class="chore-pending-who">@NameOf(item.MemberId)</span>
+                        <span class="text-truncate">@(string.IsNullOrEmpty(item.Icon) ? "🧹" : item.Icon) @item.Title</span>
+                        <span class="text-muted small">@item.Day.ToString("MMM d") · @item.DoneAt.ToString("HH:mm")</span>
+                        <span class="chore-points">+@item.Points</span>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ApproveAsync(item.Id)">approve</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => UndoAsync(item.Id)">deny</button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="row g-3 mb-4">
+        @foreach (var kid in _kids)
+        {
+            var summary = _summaries.GetValueOrDefault(kid.Id);
+            <div class="col-lg-4 col-md-6">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><span class="kid-face-sm" style="--kid: @kid.Color">@kid.Face</span> @kid.Name</span>
+                        <span class="text-muted small">@(_pins.Contains(kid.Id) ? "PIN set" : "no PIN yet")</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex gap-4 mb-3">
+                            <div>
+                                <div class="fs-4 fw-bold">@(summary?.Balance ?? 0)</div>
+                                <div class="text-muted small">⭐ balance</div>
+                            </div>
+                            <div>
+                                <div class="fs-4 fw-bold">@(summary?.Streak ?? 0)</div>
+                                <div class="text-muted small">🔥 streak</div>
+                            </div>
+                            <div>
+                                <div class="fs-4 fw-bold">@(summary?.EarnedThisWeek ?? 0)</div>
+                                <div class="text-muted small">this week</div>
+                            </div>
+                        </div>
+
+                        @foreach (var chore in _chores.Where(c => c.MemberId == kid.Id))
+                        {
+                            <button type="button" class="chore-row" @onclick="() => EditChore(chore)">
+                                <span>@(string.IsNullOrEmpty(chore.Icon) ? "🧹" : chore.Icon)</span>
+                                <span class="text-truncate">@chore.Title</span>
+                                @if (chore.NeedsApproval)
+                                {
+                                    <span class="chore-flag" title="You approve this one before it pays">✓?</span>
+                                }
+                                <span class="text-muted small">@chore.ScheduleLabel</span>
+                                <span class="chore-points">+@chore.Points</span>
+                            </button>
+                        }
+                        @if (!_chores.Any(c => c.MemberId == kid.Id))
+                        {
+                            <div class="text-muted small mb-2">No chores yet.</div>
+                        }
+
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => NewChore(kid.Id)">+ chore</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenPin(kid)">set PIN</button>
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@((summary?.Balance ?? 0) <= 0)"
+                                    @onclick="() => OpenCashOut(kid, summary?.Balance ?? 0)">cash out</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">👦 Who uses the portal</div>
+        <div class="card-body">
+            <p class="text-muted small">
+                Tick anyone who should get their own chore list and PIN. Everyone here comes from the
+                <a href="calendar">Calendar</a> roster.
+            </p>
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var member in _members)
+                {
+                    <div class="chore-person">
+                        <input class="form-check-input" type="checkbox" checked="@member.IsKid"
+                               @onchange="e => SetKidAsync(member, (bool)(e.Value ?? false))" />
+                        <span class="kid-face-sm" style="--kid: @member.Color">@member.Face</span>
+                        <span>@member.Name</span>
+                        @if (member.IsKid)
+                        {
+                            <div class="cal-icon-row">
+                                @foreach (var face in Faces)
+                                {
+                                    <button type="button" class="cal-icon-pick @(member.Avatar == face ? "on" : "")"
+                                            @onclick="() => SetAvatarAsync(member, face)">@face</button>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_recent.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header">🗓️ Last two weeks</div>
+            <div class="card-body chore-history">
+                @foreach (var group in _recent.GroupBy(c => c.Day))
+                {
+                    <div class="cal-agenda-day">@group.Key.ToString("ddd, MMM d")</div>
+                    @foreach (var item in group)
+                    {
+                        <div class="chore-pending">
+                            <span class="cal-dot" style="background: @ColorOf(item.MemberId)"></span>
+                            <span class="chore-pending-who">@NameOf(item.MemberId)</span>
+                            <span class="text-truncate">@(string.IsNullOrEmpty(item.Icon) ? "🧹" : item.Icon) @item.Title</span>
+                            <span class="text-muted small">@item.DoneAt.ToString("HH:mm")</span>
+                            <span class="chore-points">@(item.Status == "done" ? $"+{item.Points}" : "pending")</span>
+                            <button class="btn btn-sm btn-outline-danger" title="That wasn't really done"
+                                    @onclick="() => UndoAsync(item.Id)">undo</button>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+}
+
+@if (_editing is not null)
+{
+    <div class="cal-modal-backdrop" @onclick="() => _editing = null">
+        <div class="cal-modal" @onclick:stopPropagation="true">
+            <div class="cal-modal-head">
+                <span>@(_editing.Id > 0 ? "Edit chore" : "New chore")</span>
+                <button type="button" class="cal-modal-x" @onclick="() => _editing = null">×</button>
+            </div>
+            <div class="cal-modal-body">
+                @if (_formError is not null)
+                {
+                    <div class="alert alert-danger py-1 px-2 small">@_formError</div>
+                }
+                <label class="cal-label">Chore</label>
+                <div class="d-flex gap-2">
+                    <input class="form-control form-control-sm cal-icon-input" maxlength="4" placeholder="🧹"
+                           @bind="_form.Icon" @bind:event="oninput" />
+                    <input class="form-control form-control-sm" placeholder="Make your bed"
+                           @bind="_form.Title" @bind:event="oninput" />
+                </div>
+                <div class="cal-icon-row">
+                    @foreach (var icon in ChoreIcons)
+                    {
+                        <button type="button" class="cal-icon-pick @(_form.Icon == icon ? "on" : "")"
+                                @onclick="() => ToggleIcon(icon)">@icon</button>
+                    }
+                </div>
+
+                <label class="cal-label">Whose job</label>
+                <div class="d-flex flex-wrap gap-1">
+                    @foreach (var kid in _kids)
+                    {
+                        <button type="button" class="cal-layer @(_form.MemberId == kid.Id ? "on" : "")"
+                                style="--layer: @kid.Color" @onclick="() => _form.MemberId = kid.Id">@kid.Name</button>
+                    }
+                </div>
+
+                <label class="cal-label">Worth</label>
+                <div class="d-flex align-items-center gap-2">
+                    <input type="number" class="form-control form-control-sm" style="max-width: 6rem" min="0" max="1000"
+                           @bind="_form.Points" />
+                    <span class="text-muted small">⭐ points each time</span>
+                </div>
+
+                <label class="cal-label">Which days</label>
+                <div class="d-flex flex-wrap gap-1 mb-2">
+                    <button type="button" class="cal-layer @(_form.Days == ChoreStore.EveryDay ? "on" : "")"
+                            style="--layer: var(--lab-accent)" @onclick="() => _form.Days = ChoreStore.EveryDay">every day</button>
+                    <button type="button" class="cal-layer @(_form.Days == ChoreStore.Weekdays ? "on" : "")"
+                            style="--layer: var(--lab-accent)" @onclick="() => _form.Days = ChoreStore.Weekdays">weekdays</button>
+                    <button type="button" class="cal-layer @(_form.Days == ChoreStore.Weekends ? "on" : "")"
+                            style="--layer: var(--lab-accent)" @onclick="() => _form.Days = ChoreStore.Weekends">weekends</button>
+                </div>
+                <div class="d-flex flex-wrap gap-1">
+                    @for (var i = 0; i < 7; i++)
+                    {
+                        var index = i;
+                        <button type="button" class="cal-layer @(_form.Days[index] == '1' ? "on" : "")"
+                                style="--layer: var(--lab-accent)"
+                                @onclick="() => ToggleDay(index)">@ChoreStore.DayNames[index]</button>
+                    }
+                </div>
+
+                <label class="cal-label">Checking</label>
+                <div class="d-flex flex-wrap gap-1">
+                    <button type="button" class="cal-layer @(!_form.NeedsApproval ? "on" : "")"
+                            style="--layer: var(--lab-accent)" @onclick="() => _form.NeedsApproval = false">
+                        trust — pays right away
+                    </button>
+                    <button type="button" class="cal-layer @(_form.NeedsApproval ? "on" : "")"
+                            style="--layer: var(--lab-amber)" @onclick="() => _form.NeedsApproval = true">
+                        I check it first
+                    </button>
+                </div>
+            </div>
+            <div class="cal-modal-foot">
+                @if (_editing.Id > 0)
+                {
+                    @if (_confirmRetire)
+                    {
+                        <button class="btn btn-sm btn-danger" @onclick="RetireAsync">confirm retire</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-outline-danger" title="Stops appearing; history is kept"
+                                @onclick="() => _confirmRetire = true">retire</button>
+                    }
+                }
+                <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="() => _editing = null">cancel</button>
+                <button class="btn btn-sm btn-outline-primary" disabled="@_saving" @onclick="SaveChoreAsync">
+                    @(_saving ? "saving…" : "save")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_pinKid is not null)
+{
+    <div class="cal-modal-backdrop" @onclick="() => _pinKid = null">
+        <div class="cal-modal" @onclick:stopPropagation="true">
+            <div class="cal-modal-head">
+                <span>PIN for @_pinKid.Name</span>
+                <button type="button" class="cal-modal-x" @onclick="() => _pinKid = null">×</button>
+            </div>
+            <div class="cal-modal-body">
+                @if (_formError is not null)
+                {
+                    <div class="alert alert-danger py-1 px-2 small">@_formError</div>
+                }
+                <label class="cal-label">4-digit PIN</label>
+                <input class="form-control form-control-sm" inputmode="numeric" maxlength="8" placeholder="1234"
+                       @bind="_pin" @bind:event="oninput" />
+                <p class="text-muted small mt-2 mb-0">
+                    Kids type this on the portal to open their list. Five wrong tries locks them out for a minute.
+                </p>
+            </div>
+            <div class="cal-modal-foot">
+                @if (_pins.Contains(_pinKid.Id))
+                {
+                    <button class="btn btn-sm btn-outline-danger" @onclick="ClearPinAsync">remove PIN</button>
+                }
+                <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="() => _pinKid = null">cancel</button>
+                <button class="btn btn-sm btn-outline-primary" @onclick="SavePinAsync">save PIN</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_cashKid is not null)
+{
+    <div class="cal-modal-backdrop" @onclick="() => _cashKid = null">
+        <div class="cal-modal" @onclick:stopPropagation="true">
+            <div class="cal-modal-head">
+                <span>Cash out @_cashKid.Name</span>
+                <button type="button" class="cal-modal-x" @onclick="() => _cashKid = null">×</button>
+            </div>
+            <div class="cal-modal-body">
+                <label class="cal-label">Points to cash out</label>
+                <input type="number" class="form-control form-control-sm" min="1" max="@_cashBalance" @bind="_cashPoints" />
+                <label class="cal-label">Note</label>
+                <input class="form-control form-control-sm" placeholder="$10 allowance" @bind="_cashNote" @bind:event="oninput" />
+                <p class="text-muted small mt-2 mb-0">
+                    Balance is @_cashBalance ⭐. Cashing out subtracts from it; the earning history stays.
+                </p>
+            </div>
+            <div class="cal-modal-foot">
+                <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="() => _cashKid = null">cancel</button>
+                <button class="btn btn-sm btn-outline-primary" @onclick="CashOutAsync">cash out</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] Faces = ["🦊", "🐼", "🦖", "🐙", "🦄", "🐝", "🦁", "🐧", "🐨", "🦉"];
+    private static readonly string[] ChoreIcons =
+        ["🛏️", "🍽️", "🗑️", "🐕", "🧺", "🧹", "🪥", "📚", "🚿", "🌱", "🧸", "🚮"];
+
+    private IReadOnlyList<FamilyMember> _members = [];
+    private IReadOnlyList<FamilyMember> _kids = [];
+    private IReadOnlyList<Chore> _chores = [];
+    private IReadOnlyList<ChoreStore.Completion> _pending = [];
+    private IReadOnlyList<ChoreStore.Completion> _recent = [];
+    private readonly Dictionary<long, ChoreStore.KidSummary> _summaries = [];
+    private readonly HashSet<long> _pins = [];
+    private string? _error;
+
+    private Chore? _editing;
+    private ChoreForm _form = new();
+    private bool _saving;
+    private bool _confirmRetire;
+    private string? _formError;
+
+    private FamilyMember? _pinKid;
+    private string _pin = "";
+
+    private FamilyMember? _cashKid;
+    private int _cashBalance;
+    private int _cashPoints;
+    private string _cashNote = "";
+
+    private sealed class ChoreForm
+    {
+        public long MemberId { get; set; }
+        public string Title { get; set; } = "";
+        public string Icon { get; set; } = "";
+        public int Points { get; set; } = 5;
+        public string Days { get; set; } = ChoreStore.EveryDay;
+        public bool NeedsApproval { get; set; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await LoadAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _members = await Family.GetMembersAsync();
+            _kids = _members.Where(m => m.IsKid).ToList();
+            _chores = await Chores.GetChoresAsync();
+            _pending = await Chores.GetPendingAsync();
+
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            _recent = (await Chores.GetLogAsync(null, today.AddDays(-13), today))
+                .Where(c => c.Status == "done")
+                .ToList();
+
+            _summaries.Clear();
+            _pins.Clear();
+            foreach (var kid in _kids)
+            {
+                _summaries[kid.Id] = await Chores.GetSummaryAsync(kid.Id);
+                if (await Chores.HasPinAsync(kid.Id))
+                    _pins.Add(kid.Id);
+            }
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetBaseException().Message;
+        }
+    }
+
+    private string NameOf(long memberId) => _members.FirstOrDefault(m => m.Id == memberId)?.Name ?? "—";
+    private string ColorOf(long memberId) =>
+        _members.FirstOrDefault(m => m.Id == memberId)?.Color ?? "var(--lab-accent)";
+
+    // ── Roster ──────────────────────────────────────────────────────────
+
+    private async Task SetKidAsync(FamilyMember member, bool isKid)
+    {
+        await Family.SetKidProfileAsync(member.Id, member.Avatar, isKid);
+        await LoadAsync();
+    }
+
+    private async Task SetAvatarAsync(FamilyMember member, string face)
+    {
+        await Family.SetKidProfileAsync(member.Id, member.Avatar == face ? "" : face, member.IsKid);
+        await LoadAsync();
+    }
+
+    // ── Chores ──────────────────────────────────────────────────────────
+
+    private void NewChore(long memberId)
+    {
+        _editing = new Chore { MemberId = memberId };
+        _form = new ChoreForm { MemberId = memberId };
+        _confirmRetire = false;
+        _formError = null;
+    }
+
+    private void EditChore(Chore chore)
+    {
+        _editing = chore;
+        _form = new ChoreForm
+        {
+            MemberId = chore.MemberId,
+            Title = chore.Title,
+            Icon = chore.Icon,
+            Points = chore.Points,
+            Days = chore.Days,
+            NeedsApproval = chore.NeedsApproval,
+        };
+        _confirmRetire = false;
+        _formError = null;
+    }
+
+    private void ToggleIcon(string icon) => _form.Icon = _form.Icon == icon ? "" : icon;
+
+    private void ToggleDay(int index)
+    {
+        var days = _form.Days.ToCharArray();
+        days[index] = days[index] == '1' ? '0' : '1';
+        _form.Days = new string(days);
+    }
+
+    private async Task SaveChoreAsync()
+    {
+        if (_editing is null)
+            return;
+        if (string.IsNullOrWhiteSpace(_form.Title))
+        {
+            _formError = "Give the chore a name.";
+            return;
+        }
+        if (!_form.Days.Contains('1'))
+        {
+            _formError = "Pick at least one day.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            await Chores.SaveChoreAsync(new Chore
+            {
+                Id = _editing.Id,
+                MemberId = _form.MemberId,
+                Title = _form.Title,
+                Icon = _form.Icon,
+                Points = _form.Points,
+                Days = _form.Days,
+                NeedsApproval = _form.NeedsApproval,
+                Active = true,
+            });
+            _editing = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task RetireAsync()
+    {
+        if (_editing is { Id: > 0 } chore)
+            await Chores.DeactivateChoreAsync(chore.Id);
+        _editing = null;
+        await LoadAsync();
+    }
+
+    // ── Approvals ───────────────────────────────────────────────────────
+
+    private async Task ApproveAsync(long logId)
+    {
+        await Chores.ApproveAsync(logId);
+        await LoadAsync();
+    }
+
+    private async Task UndoAsync(long logId)
+    {
+        await Chores.UndoAsync(logId);
+        await LoadAsync();
+    }
+
+    // ── PINs and payouts ────────────────────────────────────────────────
+
+    private void OpenPin(FamilyMember kid)
+    {
+        _pinKid = kid;
+        _pin = "";
+        _formError = null;
+    }
+
+    private async Task SavePinAsync()
+    {
+        if (_pinKid is null)
+            return;
+        if (_pin.Length < 4 || !_pin.All(char.IsAsciiDigit))
+        {
+            _formError = "PINs are at least four digits.";
+            return;
+        }
+        await Chores.SetPinAsync(_pinKid.Id, _pin);
+        _pinKid = null;
+        await LoadAsync();
+    }
+
+    private async Task ClearPinAsync()
+    {
+        if (_pinKid is not null)
+            await Chores.ClearPinAsync(_pinKid.Id);
+        _pinKid = null;
+        await LoadAsync();
+    }
+
+    private void OpenCashOut(FamilyMember kid, int balance)
+    {
+        _cashKid = kid;
+        _cashBalance = balance;
+        _cashPoints = balance;
+        _cashNote = "";
+    }
+
+    private async Task CashOutAsync()
+    {
+        if (_cashKid is null)
+            return;
+        var points = Math.Clamp(_cashPoints, 1, _cashBalance);
+        await Chores.CashOutAsync(_cashKid.Id, points, _cashNote);
+        _cashKid = null;
+        await LoadAsync();
+    }
+}

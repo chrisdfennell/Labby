@@ -1,0 +1,186 @@
+@page "/chores/board"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout Layout.KidLayout
+@inject FamilyCalendarStore Family
+@inject ChoreStore Chores
+@inject NavigationManager Nav
+
+<PageTitle>Labby — My chores</PageTitle>
+
+<div class="kid-shell">
+    @if (_kid is null)
+    {
+        <p class="kid-sub">@(_loading ? "Loading…" : "Nobody's signed in.")</p>
+        <a class="btn btn-outline-primary" href="chores">pick your name</a>
+    }
+    else
+    {
+        <div class="kid-header" style="--kid: @_kid.Color">
+            <span class="kid-face">@_kid.Face</span>
+            <div class="kid-header-text">
+                <div class="kid-hello">Hi @_kid.Name</div>
+                <div class="kid-today">@DateTime.Today.ToString("dddd, MMMM d")</div>
+            </div>
+            <div class="kid-stats">
+                <div class="kid-stat" title="Points you haven't cashed out yet">
+                    <span class="kid-stat-value">@(_summary?.Balance ?? 0)</span>
+                    <span class="kid-stat-label">⭐ points</span>
+                </div>
+                <div class="kid-stat" title="Days in a row with everything done">
+                    <span class="kid-stat-value">@(_summary?.Streak ?? 0)</span>
+                    <span class="kid-stat-label">🔥 day streak</span>
+                </div>
+            </div>
+        </div>
+
+        @if (_today.Count == 0)
+        {
+            <div class="kid-card kid-empty">
+                <div class="kid-empty-face">🎉</div>
+                <div>Nothing on your list today.</div>
+            </div>
+        }
+        else
+        {
+            <div class="kid-progress">
+                <div class="kid-progress-bar" style="width: @Percent%"></div>
+                <span class="kid-progress-text">@DoneCount of @_today.Count done</span>
+            </div>
+
+            @if (DoneCount == _today.Count)
+            {
+                <div class="kid-allclear">🎉 Everything's done. Nice work!</div>
+            }
+
+            <div class="kid-list">
+                @foreach (var item in _today)
+                {
+                    <button type="button"
+                            class="kid-chore @(item.IsDone ? "is-done" : "") @(item.IsPending ? "is-pending" : "")"
+                            style="--kid: @_kid.Color"
+                            disabled="@(!item.IsOpen || _busy == item.Chore.Id)"
+                            @onclick="() => CompleteAsync(item)">
+                        <span class="kid-check">@(item.IsDone ? "✓" : item.IsPending ? "⏳" : "")</span>
+                        <span class="kid-chore-icon">@(string.IsNullOrEmpty(item.Chore.Icon) ? "🧹" : item.Chore.Icon)</span>
+                        <span class="kid-chore-title">
+                            @item.Chore.Title
+                            @if (item.IsPending)
+                            {
+                                <span class="kid-chore-note">waiting for a grown-up to check</span>
+                            }
+                            else if (item.Chore.NeedsApproval && item.IsOpen)
+                            {
+                                <span class="kid-chore-note">a grown-up checks this one</span>
+                            }
+                        </span>
+                        <span class="kid-chore-points">+@item.Chore.Points</span>
+                    </button>
+                }
+            </div>
+        }
+
+        <div class="kid-week">
+            @foreach (var day in LastWeek())
+            {
+                <div class="kid-week-day @(day.All ? "all" : day.Some ? "some" : "")" title="@day.Label">
+                    <span class="kid-week-dot"></span>
+                    <span class="kid-week-name">@day.Short</span>
+                </div>
+            }
+        </div>
+
+        <div class="kid-footer">
+            <span>@(_summary?.EarnedThisWeek ?? 0) points earned this week</span>
+            <a class="kid-back" href="chores">← someone else</a>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private FamilyCalendarStore.FamilyMember? _kid;
+    private IReadOnlyList<ChoreStore.ChoreToday> _today = [];
+    private ChoreStore.KidSummary? _summary;
+    private IReadOnlyList<ChoreStore.Completion> _recent = [];
+    private long? _busy;
+    private bool _loading = true;
+
+    private int DoneCount => _today.Count(c => c.IsDone || c.IsPending);
+    private int Percent => _today.Count == 0 ? 0 : (int)Math.Round(100.0 * DoneCount / _today.Count);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null)
+            return;
+        var user = (await AuthState).User;
+        if (!user.IsInRole(Roles.Kid) ||
+            !long.TryParse(user.FindFirst(LabbyClaims.MemberId)?.Value, out var memberId))
+        {
+            _loading = false;
+            Nav.NavigateTo("chores");
+            return;
+        }
+
+        _kid = await Family.GetMemberAsync(memberId);
+        if (_kid is null)
+        {
+            _loading = false;
+            Nav.NavigateTo("chores");
+            return;
+        }
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_kid is null)
+            return;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _today = await Chores.GetDayAsync(_kid.Id, today);
+        _summary = await Chores.GetSummaryAsync(_kid.Id);
+        _recent = await Chores.GetLogAsync(_kid.Id, today.AddDays(-6), today);
+    }
+
+    private async Task CompleteAsync(ChoreStore.ChoreToday item)
+    {
+        if (!item.IsOpen)
+            return;
+        _busy = item.Chore.Id;
+        try
+        {
+            await Chores.CompleteAsync(item.Chore.Id, DateOnly.FromDateTime(DateTime.Today));
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = null;
+        }
+    }
+
+    private record WeekDay(string Short, string Label, bool All, bool Some);
+
+    /// <summary>A seven-dot strip: filled when that day was cleared, half when partly done.</summary>
+    private IEnumerable<WeekDay> LastWeek()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var credited = _recent.Where(c => c.Status == "done").Select(c => (c.ChoreId, c.Day)).ToHashSet();
+        var chores = _today.Select(c => c.Chore).ToList();
+        for (var offset = 6; offset >= 0; offset--)
+        {
+            var day = today.AddDays(-offset);
+            var due = chores.Where(c => c.FallsOn(day) && c.CreatedOn <= day).ToList();
+            var done = due.Count(c => credited.Contains((c.Id, day)));
+            yield return new WeekDay(
+                day.ToString("ddd")[..1],
+                due.Count == 0 ? $"{day:MMM d} — nothing due" : $"{day:MMM d} — {done} of {due.Count}",
+                due.Count > 0 && done == due.Count,
+                done > 0);
+        }
+    }
+}

@@ -849,6 +849,428 @@ button.cal-agenda-item:hover {
     background: var(--lab-accent-dim);
 }
 
+/* ── Kids' chore portal ──────────────────────────────────────────────── */
+.kid-shell {
+    width: min(46rem, 100%);
+}
+
+.kid-brand {
+    font-family: var(--lab-mono);
+    font-size: 1.6rem;
+    letter-spacing: 0.04em;
+    text-align: center;
+}
+
+.kid-sub {
+    text-align: center;
+    color: var(--lab-muted);
+    margin-bottom: 1.5rem;
+}
+
+.kid-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 1rem;
+}
+
+.kid-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 1.4rem 0.8rem;
+    border: 1px solid var(--lab-border);
+    border-top: 3px solid var(--kid, var(--lab-accent));
+    border-radius: 0.7rem;
+    background: var(--lab-panel);
+    color: var(--lab-text);
+    text-decoration: none;
+    transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.kid-tile:hover,
+.kid-tile:focus-visible {
+    transform: translateY(-3px);
+    background: color-mix(in srgb, var(--kid, var(--lab-accent)) 14%, var(--lab-panel));
+    color: var(--lab-text);
+}
+
+.kid-face {
+    font-size: 2.6rem;
+    line-height: 1.1;
+}
+
+.kid-face-sm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--kid, var(--lab-accent)) 28%, transparent);
+    margin-right: 0.3rem;
+}
+
+.kid-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.kid-left {
+    font-family: var(--lab-mono);
+    font-size: 0.72rem;
+    color: var(--lab-muted);
+}
+
+/* PIN entry */
+.kid-pin-form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+.kid-pin-input {
+    width: 9rem;
+    text-align: center;
+    font-size: 1.8rem;
+    letter-spacing: 0.4em;
+    padding: 0.3rem 0.5rem;
+    background: var(--lab-panel-deep);
+    border: 1px solid var(--lab-border);
+    border-radius: 0.5rem;
+    color: var(--lab-text);
+}
+
+.kid-pad {
+    display: grid;
+    grid-template-columns: repeat(3, 4.5rem);
+    gap: 0.5rem;
+}
+
+.kid-key {
+    font-family: var(--lab-mono);
+    font-size: 1.3rem;
+    padding: 0.7rem 0;
+    border: 1px solid var(--lab-border);
+    border-radius: 0.5rem;
+    background: var(--lab-panel);
+    color: var(--lab-text);
+}
+
+.kid-key:active {
+    background: var(--lab-accent-dim);
+    border-color: var(--lab-accent);
+}
+
+.kid-key-wide {
+    font-size: 0.8rem;
+    grid-column: span 2;
+}
+
+.kid-go {
+    min-width: 9rem;
+}
+
+.kid-error {
+    color: var(--lab-red);
+    font-size: 0.85rem;
+}
+
+.kid-back {
+    display: block;
+    text-align: center;
+    margin-top: 1.2rem;
+    font-size: 0.85rem;
+    color: var(--lab-muted);
+}
+
+/* The board */
+.kid-header {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--lab-border);
+    border-left: 4px solid var(--kid, var(--lab-accent));
+    border-radius: 0.7rem;
+    background: var(--lab-panel);
+    margin-bottom: 1rem;
+}
+
+.kid-header-text {
+    min-width: 0;
+}
+
+.kid-hello {
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+.kid-today {
+    font-family: var(--lab-mono);
+    font-size: 0.75rem;
+    color: var(--lab-muted);
+}
+
+.kid-stats {
+    display: flex;
+    gap: 1.2rem;
+    margin-left: auto;
+    text-align: center;
+}
+
+.kid-stat-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.kid-stat-label {
+    font-family: var(--lab-mono);
+    font-size: 0.65rem;
+    color: var(--lab-muted);
+}
+
+.kid-progress {
+    position: relative;
+    height: 1.4rem;
+    background: var(--lab-panel-deep);
+    border: 1px solid var(--lab-border);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 0.9rem;
+}
+
+.kid-progress-bar {
+    height: 100%;
+    background: var(--lab-accent-dim);
+    border-right: 1px solid var(--lab-accent);
+    transition: width 0.25s ease;
+}
+
+.kid-progress-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--lab-mono);
+    font-size: 0.72rem;
+    color: var(--lab-muted);
+}
+
+.kid-allclear {
+    text-align: center;
+    color: var(--lab-accent);
+    margin-bottom: 0.8rem;
+}
+
+.kid-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.kid-chore {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--lab-border);
+    border-left: 4px solid var(--kid, var(--lab-accent));
+    border-radius: 0.6rem;
+    background: var(--lab-panel);
+    color: var(--lab-text);
+    font-size: 1.05rem;
+    transition: transform 0.1s ease, background 0.12s ease;
+}
+
+.kid-chore:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--kid, var(--lab-accent)) 12%, var(--lab-panel));
+}
+
+.kid-chore:active:not(:disabled) {
+    transform: scale(0.99);
+}
+
+.kid-chore.is-done {
+    opacity: 0.55;
+    border-left-color: var(--lab-accent);
+}
+
+.kid-chore.is-done .kid-chore-title {
+    text-decoration: line-through;
+}
+
+.kid-chore.is-pending {
+    border-left-color: var(--lab-amber);
+    opacity: 0.85;
+}
+
+.kid-check {
+    width: 1.6rem;
+    font-size: 1.2rem;
+    color: var(--lab-accent);
+}
+
+.kid-chore-icon {
+    font-size: 1.4rem;
+}
+
+.kid-chore-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.kid-chore-note {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--lab-muted);
+    text-decoration: none;
+}
+
+.kid-chore-points {
+    font-family: var(--lab-mono);
+    color: var(--lab-amber);
+    white-space: nowrap;
+}
+
+.kid-card {
+    padding: 1.5rem;
+    border: 1px solid var(--lab-border);
+    border-radius: 0.7rem;
+    background: var(--lab-panel);
+    text-align: center;
+}
+
+.kid-empty-face {
+    font-size: 2.5rem;
+}
+
+.kid-week {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-top: 1.2rem;
+}
+
+.kid-week-day {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.kid-week-dot {
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 50%;
+    border: 1px solid var(--lab-border);
+    background: var(--lab-panel-deep);
+}
+
+.kid-week-day.some .kid-week-dot {
+    background: var(--lab-accent-dim);
+    border-color: var(--lab-accent);
+}
+
+.kid-week-day.all .kid-week-dot {
+    background: var(--lab-accent);
+    border-color: var(--lab-accent);
+}
+
+.kid-week-name {
+    font-family: var(--lab-mono);
+    font-size: 0.62rem;
+    color: var(--lab-muted);
+}
+
+.kid-footer {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 1.2rem;
+    font-family: var(--lab-mono);
+    font-size: 0.75rem;
+    color: var(--lab-muted);
+}
+
+.kid-footer .kid-back {
+    margin-top: 0;
+}
+
+/* Parent-side chore management */
+.chore-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.3rem 0.4rem;
+    border: 0;
+    border-left: 2px solid var(--lab-border);
+    background: transparent;
+    color: var(--lab-text);
+    font-size: 0.88rem;
+    border-radius: 0 0.2rem 0.2rem 0;
+}
+
+.chore-row:hover {
+    background: var(--lab-accent-dim);
+    border-left-color: var(--lab-accent);
+}
+
+.chore-points {
+    margin-left: auto;
+    font-family: var(--lab-mono);
+    font-size: 0.75rem;
+    color: var(--lab-amber);
+    white-space: nowrap;
+}
+
+.chore-flag {
+    font-family: var(--lab-mono);
+    font-size: 0.65rem;
+    color: var(--lab-amber);
+    border: 1px solid var(--lab-amber);
+    border-radius: 0.2rem;
+    padding: 0 0.2rem;
+}
+
+.chore-pending {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0;
+    font-size: 0.88rem;
+}
+
+.chore-pending-who {
+    font-weight: 600;
+    min-width: 4rem;
+}
+
+.chore-person {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--lab-border);
+    border-radius: 0.4rem;
+    background: var(--lab-panel-deep);
+}
+
+.chore-history {
+    max-height: 26rem;
+    overflow-y: auto;
+}
+
 /* ── Kiosk mode ──────────────────────────────────────────────────────── */
 html.kiosk .topbar {
     display: none;

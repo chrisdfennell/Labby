@@ -1,0 +1,147 @@
+@page "/chores"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@layout Layout.KidLayout
+@inject FamilyCalendarStore Family
+@inject ChoreStore Store
+@inject NavigationManager Nav
+
+@* Static SSR on purpose: signing in has to set a cookie, which needs HttpContext. *@
+
+<PageTitle>Labby — Chores</PageTitle>
+
+<div class="kid-shell">
+    <div class="kid-brand"><span class="brand-prompt">&gt;</span>chores<span class="brand-cursor">_</span></div>
+
+    @if (_kid is null)
+    {
+        <p class="kid-sub">Who's checking in?</p>
+        @if (_kids.Count == 0)
+        {
+            <div class="alert alert-secondary mt-3">
+                No kids set up yet. A parent can add them under <code>Chores</code> in the console.
+            </div>
+        }
+        <div class="kid-tiles">
+            @foreach (var kid in _kids)
+            {
+                var summary = _summaries.GetValueOrDefault(kid.Id);
+                <a class="kid-tile" style="--kid: @kid.Color" href="chores?who=@kid.Id">
+                    <span class="kid-face">@kid.Face</span>
+                    <span class="kid-name">@kid.Name</span>
+                    <span class="kid-left">
+                        @if (summary is null || summary.DueToday == 0)
+                        {
+                            <text>nothing today</text>
+                        }
+                        else if (summary.OpenToday == 0)
+                        {
+                            <text>all done ✓</text>
+                        }
+                        else
+                        {
+                            <text>@summary.OpenToday left</text>
+                        }
+                    </span>
+                </a>
+            }
+        </div>
+    }
+    else
+    {
+        <p class="kid-sub">
+            <span class="kid-face-sm" style="--kid: @_kid.Color">@_kid.Face</span>
+            Hi @_kid.Name — enter your PIN
+        </p>
+        <EditForm Model="Model" OnValidSubmit="SignInAsync" FormName="kidpin" class="kid-pin-form">
+            <input type="hidden" name="Model.MemberId" value="@_kid.Id" />
+            <InputText @bind-Value="Model.Pin" id="kid-pin" type="password" inputmode="numeric"
+                       autocomplete="off" maxlength="8" class="kid-pin-input" placeholder="••••" />
+            @if (_error is not null)
+            {
+                <div class="kid-error">✗ @_error</div>
+            }
+            <div class="kid-pad">
+                @foreach (var digit in (string[])["1", "2", "3", "4", "5", "6", "7", "8", "9"])
+                {
+                    <button type="button" class="kid-key" data-digit="@digit">@digit</button>
+                }
+                <button type="button" class="kid-key kid-key-wide" data-clear="1">clear</button>
+                <button type="button" class="kid-key" data-digit="0">0</button>
+            </div>
+            <button type="submit" class="btn btn-outline-primary kid-go">let me in</button>
+        </EditForm>
+        <a class="kid-back" href="chores">← someone else</a>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    public HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "who")]
+    public long? Who { get; set; }
+
+    [SupplyParameterFromForm(FormName = "kidpin")]
+    public PinModel Model { get; set; } = null!;
+
+    private IReadOnlyList<FamilyCalendarStore.FamilyMember> _kids = [];
+    private readonly Dictionary<long, ChoreStore.KidSummary> _summaries = [];
+    private FamilyCalendarStore.FamilyMember? _kid;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Model ??= new();
+        _kids = await Family.GetKidsAsync();
+
+        // The form posts the id back; the query string only seeds the first render.
+        var selected = Model.MemberId > 0 ? Model.MemberId : Who;
+        _kid = selected is { } id ? _kids.FirstOrDefault(k => k.Id == id) : null;
+
+        if (_kid is null)
+        {
+            foreach (var kid in _kids)
+                _summaries[kid.Id] = await Store.GetSummaryAsync(kid.Id);
+        }
+    }
+
+    private async Task SignInAsync()
+    {
+        if (_kid is null)
+            return;
+
+        var result = await Store.CheckPinAsync(_kid.Id, Model.Pin ?? "");
+        if (!result.Ok)
+        {
+            _error = result.Error;
+            Model.Pin = "";
+            return;
+        }
+
+        // One cookie for the whole app: a kid signing in on this browser replaces
+        // whoever was signed in before, and the console policy rejects the kid role.
+        var identity = new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.Name, _kid.Name),
+                new Claim(ClaimTypes.Role, Roles.Kid),
+                new Claim(LabbyClaims.MemberId, _kid.Id.ToString()),
+            ],
+            CookieAuthenticationDefaults.AuthenticationScheme);
+        await HttpContext!.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(identity),
+            new AuthenticationProperties { IsPersistent = true });
+
+        Nav.NavigateTo("chores/board", forceLoad: true);
+    }
+
+    public sealed class PinModel
+    {
+        public long MemberId { get; set; }
+        public string? Pin { get; set; }
+    }
+}

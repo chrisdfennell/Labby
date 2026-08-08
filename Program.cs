@@ -36,10 +36,28 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     {
         options.Cookie.Name = "labby.auth";
         options.LoginPath = "/login";
+        // A kid who wanders onto a console URL lands back on their own portal.
+        options.AccessDeniedPath = "/chores";
         options.ExpireTimeSpan = TimeSpan.FromDays(30);
         options.SlidingExpiration = true;
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // The console is everything except the kids' chore portal. Kids sign in with a
+    // PIN on the same cookie, so the policy has to exclude them explicitly — with
+    // Auth:Password unset the LAN is trusted, but a signed-in kid still is not.
+    options.AddPolicy(Policies.Console, policy => policy.RequireAssertion(context =>
+    {
+        // The Blazor hub is shared by every interactive page, including the kids'
+        // own board, so the kid role has to get through here — page endpoints are
+        // authorized separately, and navigation between them is a server round trip.
+        var isBlazorHub = context.Resource is HttpContext http &&
+            http.Request.Path.StartsWithSegments("/_blazor");
+        if (context.User.IsInRole(Roles.Kid) && !isBlazorHub)
+            return false;
+        return !authEnabled || context.User.Identity?.IsAuthenticated == true;
+    }));
+});
 builder.Services.AddCascadingAuthenticationState();
 
 static HttpMessageHandler CreateQnapHandler(IServiceProvider sp, bool useCookies)
@@ -119,6 +137,7 @@ builder.Services.AddSingleton<DockerEngineClient>();
 builder.Services.AddSingleton<ShareLinkService>();
 builder.Services.AddSingleton<NotesStore>();
 builder.Services.AddSingleton<FamilyCalendarStore>();
+builder.Services.AddSingleton<ChoreStore>();
 builder.Services.AddSingleton<MetricsStore>();
 builder.Services.AddHostedService<MetricsHistoryService>();
 builder.Services.AddSingleton<PingMonitor>();
@@ -386,7 +405,9 @@ if (authEnabled)
 app.MapStaticAssets();
 var components = app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
-if (authEnabled)
-    components.RequireAuthorization();
+// Always applied: with auth off the policy waves through anonymous LAN users but
+// still keeps a PIN-signed-in kid out of the console. The portal pages opt out
+// with [AllowAnonymous] and check the kid claim themselves.
+components.RequireAuthorization(Policies.Console);
 
 app.Run();
