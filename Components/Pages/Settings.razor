@@ -49,6 +49,23 @@
                     @(_testSending ? "sending…" : _testSent ? "sent ✓ — check your phone" : "🧪 Send test alert")
                 </button>
                 <hr class="my-2" />
+                @if (Digest.DisabledReason is { } why)
+                {
+                    <p class="small mb-2">
+                        <span class="state-warn">☀️ Morning digest: off</span> — @why.
+                        Set <code>LABBY_DIGEST_HOUR</code> in <code>.env</code> and recreate the container.
+                    </p>
+                }
+                else
+                {
+                    <p class="text-muted small mb-2">
+                        ☀️ Morning digest daily at @($"{Digest.Hour:00}:00")
+                        @if (Digest.NextRunAt is { } next)
+                        {
+                            <text> — next @next.ToString("ddd HH:mm")</text>
+                        }
+                    </p>
+                }
                 <button class="btn btn-sm btn-outline-secondary" disabled="@(!Alerts.IsEnabled || _digestSending)"
                         @onclick="SendDigestAsync">
                     @(_digestSending ? "sending…" : "☀️ Send digest now")

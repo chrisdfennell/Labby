@@ -18,22 +18,37 @@ public sealed class DigestService(
     IOptions<AlertOptions> options,
     ILogger<DigestService> logger) : BackgroundService
 {
+    /// <summary>
+    /// Why the scheduled digest isn't running, or null when it is armed. The
+    /// Settings page shows this — a digest that is simply switched off looks
+    /// identical to a broken one otherwise.
+    /// </summary>
+    public string? DisabledReason =>
+        options.Value.DigestHour is < 0 or > 23 ? "Alerts:DigestHour is not set (0-23)"
+        : !alerts.IsEnabled ? "no alert channel is configured"
+        : null;
+
+    /// <summary>When the next digest is due, once the schedule is running.</summary>
+    public DateTimeOffset? NextRunAt { get; private set; }
+
+    /// <summary>The configured local hour, for display.</summary>
+    public int Hour => options.Value.DigestHour;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var hour = options.Value.DigestHour;
-        if (hour is < 0 or > 23 || !alerts.IsEnabled)
+        if (DisabledReason is { } reason)
         {
-            logger.LogInformation("Morning digest idle ({Reason})",
-                hour is < 0 or > 23 ? "Alerts:DigestHour not set" : "no alert channel configured");
+            logger.LogInformation("Morning digest idle ({Reason})", reason);
             return;
         }
 
         while (!stoppingToken.IsCancellationRequested)
         {
             var now = DateTimeOffset.Now;
-            var next = new DateTimeOffset(now.Year, now.Month, now.Day, hour, 0, 0, now.Offset);
-            if (next <= now)
-                next = next.AddDays(1);
+            var next = NextRun(hour, now);
+            NextRunAt = next;
+            logger.LogInformation("Morning digest scheduled for {Next:yyyy-MM-dd HH:mm zzz}", next);
             await Task.Delay(next - now, stoppingToken);
 
             try
@@ -50,6 +65,20 @@ public sealed class DigestService(
             }
         }
     }
+
+    /// <summary>
+    /// The next time the clock reads <paramref name="hour"/>:00 locally. The offset
+    /// is taken at the target instant, not "now" — building tomorrow's time with
+    /// today's offset lands an hour out on each daylight-saving changeover.
+    /// </summary>
+    internal static DateTimeOffset NextRun(int hour, DateTimeOffset now)
+    {
+        var candidate = LocalAt(now.LocalDateTime.Date.AddHours(hour));
+        return candidate > now ? candidate : LocalAt(now.LocalDateTime.Date.AddDays(1).AddHours(hour));
+    }
+
+    private static DateTimeOffset LocalAt(DateTime local) =>
+        new(local, TimeZoneInfo.Local.GetUtcOffset(local));
 
     public async Task<string> BuildDigestAsync(CancellationToken ct = default)
     {
